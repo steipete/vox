@@ -38,10 +38,11 @@ export async function startServer({ host, port, config }: StartServerOpts): Prom
 
   const app = Fastify({ logger: false });
   await app.register(websocket);
+  app.addContentTypeParser("application/x-www-form-urlencoded", (_req, _body, done) => done(null));
 
   app.get("/health", async () => ({ ok: true }));
 
-  app.get("/twiml", async (_req, reply) => {
+  app.all("/twiml", async (_req, reply) => {
     if (!config.publicBaseUrl) {
       return reply
         .code(500)

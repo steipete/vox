@@ -146,6 +146,7 @@ async function handleTwilioSocket(opts: {
       openai.send({
         type: "session.update",
         session: {
+          type: "realtime",
           instructions:
             "You are Vox, a natural-sounding phone agent. Keep responses short (<= 2 sentences), ask one question at a time, and prefer confirming numbers/names. When you need information or actions, call the `query_agent` tool. If a tool call takes time, say a brief filler like 'One moment' and then continue. Avoid long lists.",
           audio: {

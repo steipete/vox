@@ -95,7 +95,9 @@ export async function runSimulate(opts: {
 
       if (name === "query_agent") {
         const result = agent
-          ? await agent.query({ ...((typeof args === "object" && args !== null ? args : { args }) as any) })
+          ? await agent.query({
+              ...((typeof args === "object" && args !== null ? args : { args }) as any),
+            })
           : { error: "No agent configured" };
 
         openai.send({
@@ -106,14 +108,20 @@ export async function runSimulate(opts: {
             output: JSON.stringify({ ok: true, result }),
           },
         });
-        openai.send({ type: "response.create", response: { output_modalities: ["audio", "text"] } });
+        openai.send({
+          type: "response.create",
+          response: { output_modalities: ["audio", "text"] },
+        });
         responseInFlight = true;
         continue;
       }
 
       if (name === "save_call_report") {
         const reportPath = path.join(logger.dir, "report.json");
-        fs.writeFileSync(reportPath, JSON.stringify({ t: new Date().toISOString(), args }, null, 2));
+        fs.writeFileSync(
+          reportPath,
+          JSON.stringify({ t: new Date().toISOString(), args }, null, 2),
+        );
         openai.send({
           type: "conversation.item.create",
           item: {
@@ -122,7 +130,10 @@ export async function runSimulate(opts: {
             output: JSON.stringify({ ok: true, path: reportPath }),
           },
         });
-        openai.send({ type: "response.create", response: { output_modalities: ["audio", "text"] } });
+        openai.send({
+          type: "response.create",
+          response: { output_modalities: ["audio", "text"] },
+        });
         responseInFlight = true;
       }
     }
@@ -156,13 +167,20 @@ export async function runSimulate(opts: {
             {
               type: "function",
               name: "query_agent",
-              description: "Query the local/internal agent for facts, actions, or structured answers.",
+              description:
+                "Query the local/internal agent for facts, actions, or structured answers.",
               parameters: {
                 type: "object",
                 additionalProperties: false,
                 properties: {
-                  question: { type: "string", description: "What you want to ask the internal agent." },
-                  context: { type: "object", description: "Optional context for the internal agent." },
+                  question: {
+                    type: "string",
+                    description: "What you want to ask the internal agent.",
+                  },
+                  context: {
+                    type: "object",
+                    description: "Optional context for the internal agent.",
+                  },
                 },
                 required: ["question"],
               },
@@ -190,7 +208,10 @@ export async function runSimulate(opts: {
       if (opts.config.initialGreeting) {
         openai.send({
           type: "response.create",
-          response: { instructions: opts.config.initialGreeting, output_modalities: ["audio", "text"] },
+          response: {
+            instructions: opts.config.initialGreeting,
+            output_modalities: ["audio", "text"],
+          },
         });
         responseInFlight = true;
       }
@@ -231,7 +252,11 @@ export async function runSimulate(opts: {
     }
   });
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: true,
+  });
   const closeAll = () => {
     try {
       rl.close();

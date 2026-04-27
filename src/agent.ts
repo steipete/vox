@@ -41,7 +41,10 @@ export function createSubprocessAgentClient(command: string): AgentClient {
   });
 
   const rl = createInterface({ input: child.stdout });
-  const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
+  const pending = new Map<
+    string,
+    { resolve: (v: unknown) => void; reject: (e: unknown) => void }
+  >();
 
   rl.on("line", (line) => {
     const parsed = safeJsonParse<{ id?: string; result?: unknown; error?: unknown }>(line);

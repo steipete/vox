@@ -38,5 +38,10 @@ export async function dialTwilioCall(opts: {
     return v;
   };
 
-  return { sid: getString("sid"), status: getString("status"), to: getString("to"), from: getString("from") };
+  return {
+    sid: getString("sid"),
+    status: getString("status"),
+    to: getString("to"),
+    from: getString("from"),
+  };
 }

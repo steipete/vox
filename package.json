@@ -2,33 +2,35 @@
   "name": "vox",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "bin": {
     "vox": "dist/cli.js"
   },
+  "type": "module",
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsup src/cli.ts --format esm --target node20 --sourcemap --clean",
     "start": "node dist/cli.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
     "test": "node --import tsx --test",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "npm run format:check && oxlint --deny-warnings src test",
+    "lint:fix": "npm run format && oxlint --fix src test"
   },
   "dependencies": {
     "@fastify/websocket": "^11.2.0",
-    "commander": "^14.0.0",
-    "dotenv": "^17.2.1",
-    "fastify": "^5.6.0",
-    "ws": "^8.18.3"
+    "commander": "^14.0.3",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.8.5",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.8",
-    "@types/node": "^24.3.0",
+    "@types/node": "^25.6.0",
     "@types/ws": "^8.18.1",
-    "tsup": "^8.5.0",
-    "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.61.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
   }
 }

@@ -21,7 +21,11 @@ type TwilioInboundMessage =
       start: { streamSid: string; callSid?: string; accountSid?: string; customParameters?: any };
       streamSid?: string;
     }
-  | { event: "media"; streamSid?: string; media: { payload: string; track?: string; timestamp?: string } }
+  | {
+      event: "media";
+      streamSid?: string;
+      media: { payload: string; track?: string; timestamp?: string };
+    }
   | { event: "stop"; streamSid?: string }
   | { event: string; [k: string]: any };
 
@@ -65,7 +69,11 @@ export async function startServer({ host, port, config }: StartServerOpts): Prom
   process.stdout.write(`vox serve listening on http://${host}:${port}\n`);
 }
 
-async function handleTwilioSocket(opts: { socket: any; req: any; config: VoxConfig }): Promise<void> {
+async function handleTwilioSocket(opts: {
+  socket: any;
+  req: any;
+  config: VoxConfig;
+}): Promise<void> {
   const { socket, config } = opts;
 
   let streamSid: string | null = null;
@@ -142,7 +150,11 @@ async function handleTwilioSocket(opts: { socket: any; req: any; config: VoxConf
           audio: {
             input: {
               format: { type: config.openaiInputAudioType },
-              turn_detection: { type: "server_vad", create_response: true, interrupt_response: true },
+              turn_detection: {
+                type: "server_vad",
+                create_response: true,
+                interrupt_response: true,
+              },
               transcription: config.openaiTranscriptionModel
                 ? { model: config.openaiTranscriptionModel }
                 : undefined,
@@ -156,13 +168,20 @@ async function handleTwilioSocket(opts: { socket: any; req: any; config: VoxConf
             {
               type: "function",
               name: "query_agent",
-              description: "Query the local/internal agent for facts, actions, or structured answers.",
+              description:
+                "Query the local/internal agent for facts, actions, or structured answers.",
               parameters: {
                 type: "object",
                 additionalProperties: false,
                 properties: {
-                  question: { type: "string", description: "What you want to ask the internal agent." },
-                  context: { type: "object", description: "Optional context for the internal agent." },
+                  question: {
+                    type: "string",
+                    description: "What you want to ask the internal agent.",
+                  },
+                  context: {
+                    type: "object",
+                    description: "Optional context for the internal agent.",
+                  },
                 },
                 required: ["question"],
               },
@@ -244,7 +263,10 @@ async function handleTwilioSocket(opts: { socket: any; req: any; config: VoxConf
         logDir: logger.dir,
         callContext: { callSid, streamSid },
       }).catch((err) => {
-        logger.event("vox", { type: "tool.error", error: err instanceof Error ? err.message : String(err) });
+        logger.event("vox", {
+          type: "tool.error",
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
       return;
     }
@@ -373,7 +395,11 @@ async function handleResponseDone(opts: {
       });
       opts.openai.send({
         type: "conversation.item.create",
-        item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ ok: true, result }) },
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify({ ok: true, result }),
+        },
       });
       opts.openai.send({ type: "response.create" });
       continue;

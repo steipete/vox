@@ -1,4 +1,6 @@
-export function safeJsonParse<T>(s: string): { ok: true; value: T } | { ok: false; error: unknown } {
+export function safeJsonParse<T>(
+  s: string,
+): { ok: true; value: T } | { ok: false; error: unknown } {
   try {
     return { ok: true, value: JSON.parse(s) as T };
   } catch (error) {

@@ -7,11 +7,19 @@ test("escapeXml escapes special characters", () => {
 });
 
 test("wsUrlFromPublicBase maps https->wss and http->ws", () => {
-  assert.equal(wsUrlFromPublicBase(new URL("https://example.com"), "/twilio"), "wss://example.com/twilio");
-  assert.equal(wsUrlFromPublicBase(new URL("http://example.com"), "/twilio"), "ws://example.com/twilio");
+  assert.equal(
+    wsUrlFromPublicBase(new URL("https://example.com"), "/twilio"),
+    "wss://example.com/twilio",
+  );
+  assert.equal(
+    wsUrlFromPublicBase(new URL("http://example.com"), "/twilio"),
+    "ws://example.com/twilio",
+  );
 });
 
 test("twimlForStream includes escaped stream url", () => {
   const xml = twimlForStream(`wss://example.com/twilio?x="y"&z=<1>`);
-  assert.ok(xml.includes(`<Stream url="wss://example.com/twilio?x=&quot;y&quot;&amp;z=&lt;1&gt;" />`));
+  assert.ok(
+    xml.includes(`<Stream url="wss://example.com/twilio?x=&quot;y&quot;&amp;z=&lt;1&gt;" />`),
+  );
 });

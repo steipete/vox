@@ -14,8 +14,8 @@
     "test": "node --import tsx --test",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "lint": "npm run format:check && oxlint --deny-warnings src test",
-    "lint:fix": "npm run format && oxlint --fix src test"
+    "lint": "pnpm run format:check && oxlint --deny-warnings src test",
+    "lint:fix": "pnpm run format && oxlint --fix src test"
   },
   "dependencies": {
     "@fastify/websocket": "^11.2.0",
@@ -32,5 +32,6 @@
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
-  }
+  },
+  "packageManager": "pnpm@10.33.2"
 }

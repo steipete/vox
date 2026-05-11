@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import websocket from "@fastify/websocket";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } from "./agent.js";
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
@@ -36,22 +36,33 @@ type TwilioOutboundMessage =
 export async function startServer({ host, port, config }: StartServerOpts): Promise<void> {
   fs.mkdirSync(config.logDir, { recursive: true });
 
+  const app = await createVoxApp(config);
+  await app.listen({ host, port });
+  process.stdout.write(`vox serve listening on http://${host}:${port}\n`);
+}
+
+export async function createVoxApp(config: VoxConfig): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(websocket);
+  app.addContentTypeParser("application/x-www-form-urlencoded", (_req, _body, done) => done(null));
 
   app.get("/health", async () => ({ ok: true }));
 
-  app.get("/twiml", async (_req, reply) => {
-    if (!config.publicBaseUrl) {
-      return reply
-        .code(500)
-        .type("text/plain")
-        .send("Missing VOX_PUBLIC_BASE_URL (must be a public https URL Twilio can reach).");
-    }
+  app.route({
+    method: ["GET", "POST"],
+    url: "/twiml",
+    handler: async (_req, reply) => {
+      if (!config.publicBaseUrl) {
+        return reply
+          .code(500)
+          .type("text/plain")
+          .send("Missing VOX_PUBLIC_BASE_URL (must be a public https URL Twilio can reach).");
+      }
 
-    const wsUrl = wsUrlFromPublicBase(config.publicBaseUrl, "/twilio");
-    const xml = twimlForStream(wsUrl);
-    return reply.type("text/xml").send(xml);
+      const wsUrl = wsUrlFromPublicBase(config.publicBaseUrl, "/twilio");
+      const xml = twimlForStream(wsUrl);
+      return reply.type("text/xml").send(xml);
+    },
   });
 
   app.get("/twilio", { websocket: true }, (connection, req) => {
@@ -65,8 +76,7 @@ export async function startServer({ host, port, config }: StartServerOpts): Prom
     });
   });
 
-  await app.listen({ host, port });
-  process.stdout.write(`vox serve listening on http://${host}:${port}\n`);
+  return app;
 }
 
 async function handleTwilioSocket(opts: {
@@ -82,6 +92,11 @@ async function handleTwilioSocket(opts: {
   const logId = `call_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const logger = createCallLogger(config.logDir, logId);
   logger.event("vox", { type: "twilio.ws.connected" });
+
+  const earlyMessages = createEarlyTwilioMessageBuffer();
+  socket.on("message", (data: any) => {
+    earlyMessages.capture(data);
+  });
 
   const agent: AgentClient | null = config.agentUrl
     ? createHttpAgentClient(config.agentUrl)
@@ -144,64 +159,7 @@ async function handleTwilioSocket(opts: {
     if (type === "session.created") {
       openai.send({
         type: "session.update",
-        session: {
-          instructions:
-            "You are Vox, a natural-sounding phone agent. Keep responses short (<= 2 sentences), ask one question at a time, and prefer confirming numbers/names. When you need information or actions, call the `query_agent` tool. If a tool call takes time, say a brief filler like 'One moment' and then continue. Avoid long lists.",
-          audio: {
-            input: {
-              format: { type: config.openaiInputAudioType },
-              turn_detection: {
-                type: "server_vad",
-                create_response: true,
-                interrupt_response: true,
-              },
-              transcription: config.openaiTranscriptionModel
-                ? { model: config.openaiTranscriptionModel }
-                : undefined,
-            },
-            output: {
-              format: { type: config.openaiOutputAudioType },
-              voice: config.openaiRealtimeVoice ?? undefined,
-            },
-          },
-          tools: [
-            {
-              type: "function",
-              name: "query_agent",
-              description:
-                "Query the local/internal agent for facts, actions, or structured answers.",
-              parameters: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  question: {
-                    type: "string",
-                    description: "What you want to ask the internal agent.",
-                  },
-                  context: {
-                    type: "object",
-                    description: "Optional context for the internal agent.",
-                  },
-                },
-                required: ["question"],
-              },
-            },
-            {
-              type: "function",
-              name: "save_call_report",
-              description: "Persist a final call report to disk.",
-              parameters: {
-                type: "object",
-                additionalProperties: true,
-                properties: {
-                  report: { type: "object", description: "Arbitrary JSON report." },
-                },
-                required: ["report"],
-              },
-            },
-          ],
-          tool_choice: "auto",
-        },
+        session: createRealtimeSessionConfig(config),
       });
       return;
     }
@@ -212,10 +170,7 @@ async function handleTwilioSocket(opts: {
       if (config.initialGreeting) {
         openai.send({
           type: "response.create",
-          response: {
-            instructions: config.initialGreeting,
-            output_modalities: ["audio"],
-          },
+          response: createInitialGreetingResponse(config.initialGreeting),
         });
         responseInFlight = true;
       }
@@ -277,8 +232,7 @@ async function handleTwilioSocket(opts: {
     }
   });
 
-  socket.on("message", (data: any) => {
-    const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+  const handleTwilioMessage = (text: string) => {
     let msg: TwilioInboundMessage;
     try {
       msg = JSON.parse(text) as TwilioInboundMessage;
@@ -323,6 +277,13 @@ async function handleTwilioSocket(opts: {
       logger.close();
       return;
     }
+  };
+
+  // Stop early buffering, replay buffered messages, then handle live messages.
+  earlyMessages.drain(handleTwilioMessage);
+  socket.on("message", (data: any) => {
+    const text = decodeSocketData(data);
+    handleTwilioMessage(text);
   });
 
   socket.on("close", () => {
@@ -345,6 +306,88 @@ async function handleTwilioSocket(opts: {
     path.join(logger.dir, "meta.json"),
     JSON.stringify({ startedAt: new Date().toISOString(), callSid, streamSid }, null, 2),
   );
+}
+
+export function decodeSocketData(data: unknown): string {
+  return Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+}
+
+export function createEarlyTwilioMessageBuffer() {
+  const messages: string[] = [];
+  let buffering = true;
+  return {
+    capture(data: unknown) {
+      if (!buffering) return false;
+      messages.push(decodeSocketData(data));
+      return true;
+    },
+    drain(handler: (text: string) => void) {
+      buffering = false;
+      for (const text of messages) handler(text);
+      messages.length = 0;
+    },
+    get size() {
+      return messages.length;
+    },
+  };
+}
+
+export function createRealtimeSessionConfig(config: VoxConfig) {
+  return {
+    type: "realtime",
+    instructions:
+      "You are Vox, a natural-sounding phone agent. Keep responses short (<= 2 sentences), ask one question at a time, and prefer confirming numbers/names. When you need information or actions, call the `query_agent` tool. If a tool call takes time, say a brief filler like 'One moment' and then continue. Avoid long lists.",
+    audio: {
+      input: {
+        format: { type: config.openaiInputAudioType },
+        turn_detection: { type: "server_vad", create_response: true, interrupt_response: true },
+        transcription: config.openaiTranscriptionModel
+          ? { model: config.openaiTranscriptionModel }
+          : undefined,
+      },
+      output: {
+        format: { type: config.openaiOutputAudioType },
+        voice: config.openaiRealtimeVoice ?? undefined,
+      },
+    },
+    tools: [
+      {
+        type: "function",
+        name: "query_agent",
+        description: "Query the local/internal agent for facts, actions, or structured answers.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            question: { type: "string", description: "What you want to ask the internal agent." },
+            context: { type: "object", description: "Optional context for the internal agent." },
+          },
+          required: ["question"],
+        },
+      },
+      {
+        type: "function",
+        name: "save_call_report",
+        description: "Persist a final call report to disk.",
+        parameters: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            report: { type: "object", description: "Arbitrary JSON report." },
+          },
+          required: ["report"],
+        },
+      },
+    ],
+    tool_choice: "auto",
+  };
+}
+
+export function createInitialGreetingResponse(initialGreeting: string) {
+  return {
+    instructions: `Say exactly the following and nothing else: "${initialGreeting}"`,
+    output_modalities: ["audio"],
+  };
 }
 
 async function handleResponseDone(opts: {

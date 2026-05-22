@@ -70,7 +70,7 @@ export async function runSimulate(opts: {
         content: [{ type: "input_text", text }],
       },
     });
-    openai.send({ type: "response.create", response: { output_modalities: ["audio", "text"] } });
+    openai.send({ type: "response.create", response: { output_modalities: ["audio"] } });
     responseInFlight = true;
   };
 
@@ -110,7 +110,7 @@ export async function runSimulate(opts: {
         });
         openai.send({
           type: "response.create",
-          response: { output_modalities: ["audio", "text"] },
+          response: { output_modalities: ["audio"] },
         });
         responseInFlight = true;
         continue;
@@ -132,7 +132,7 @@ export async function runSimulate(opts: {
         });
         openai.send({
           type: "response.create",
-          response: { output_modalities: ["audio", "text"] },
+          response: { output_modalities: ["audio"] },
         });
         responseInFlight = true;
       }
@@ -211,7 +211,7 @@ export async function runSimulate(opts: {
           type: "response.create",
           response: {
             instructions: opts.config.initialGreeting,
-            output_modalities: ["audio", "text"],
+            output_modalities: ["audio"],
           },
         });
         responseInFlight = true;
@@ -219,7 +219,12 @@ export async function runSimulate(opts: {
       return;
     }
 
-    if (type === "response.output_text.delta" || type === "response.text.delta") {
+    if (
+      type === "response.output_text.delta" ||
+      type === "response.text.delta" ||
+      type === "response.output_audio_transcript.delta" ||
+      type === "response.audio_transcript.delta"
+    ) {
       const delta = evt?.delta ?? evt?.text?.delta ?? "";
       if (typeof delta === "string" && delta.length) {
         if (!lastAssistantText.length) process.stdout.write("assistant> ");
@@ -229,7 +234,12 @@ export async function runSimulate(opts: {
       return;
     }
 
-    if (type === "response.output_text.done" || type === "response.text.done") {
+    if (
+      type === "response.output_text.done" ||
+      type === "response.text.done" ||
+      type === "response.output_audio_transcript.done" ||
+      type === "response.audio_transcript.done"
+    ) {
       if (lastAssistantText.length) process.stdout.write("\n");
       lastAssistantText = "";
       return;

@@ -148,6 +148,7 @@ export async function runSimulate(opts: {
       openai.send({
         type: "session.update",
         session: {
+          type: "realtime",
           instructions:
             "You are Vox in a local simulation. Respond naturally but concisely. Prefer calling `query_agent` for facts/actions.",
           audio: {

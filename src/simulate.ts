@@ -10,6 +10,68 @@ import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
 import { connectOpenAIRealtime } from "./openai.js";
 
+export function createSimulateAudioResponse(instructions?: string) {
+  return {
+    ...(instructions ? { instructions } : {}),
+    output_modalities: ["audio"],
+  };
+}
+
+export function createSimulateSessionConfig(config: VoxConfig) {
+  return {
+    type: "realtime",
+    instructions:
+      "You are Vox in a local simulation. Respond naturally but concisely. Prefer calling `query_agent` for facts/actions.",
+    audio: {
+      input: {
+        format: { type: config.openaiInputAudioType },
+        turn_detection: { type: "server_vad", create_response: false },
+        transcription: config.openaiTranscriptionModel
+          ? { model: config.openaiTranscriptionModel }
+          : undefined,
+      },
+      output: {
+        format: { type: config.openaiOutputAudioType },
+        voice: config.openaiRealtimeVoice ?? undefined,
+      },
+    },
+    tools: [
+      {
+        type: "function",
+        name: "query_agent",
+        description: "Query the local/internal agent for facts, actions, or structured answers.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            question: {
+              type: "string",
+              description: "What you want to ask the internal agent.",
+            },
+            context: {
+              type: "object",
+              description: "Optional context for the internal agent.",
+            },
+          },
+          required: ["question"],
+        },
+      },
+      {
+        type: "function",
+        name: "save_call_report",
+        description: "Persist a final call report to disk.",
+        parameters: {
+          type: "object",
+          additionalProperties: true,
+          properties: { report: { type: "object" } },
+          required: ["report"],
+        },
+      },
+    ],
+    tool_choice: "auto",
+  };
+}
+
 export async function runSimulate(opts: {
   config: VoxConfig;
   outDir: string;
@@ -70,7 +132,7 @@ export async function runSimulate(opts: {
         content: [{ type: "input_text", text }],
       },
     });
-    openai.send({ type: "response.create", response: { output_modalities: ["audio", "text"] } });
+    openai.send({ type: "response.create", response: createSimulateAudioResponse() });
     responseInFlight = true;
   };
 
@@ -110,7 +172,7 @@ export async function runSimulate(opts: {
         });
         openai.send({
           type: "response.create",
-          response: { output_modalities: ["audio", "text"] },
+          response: createSimulateAudioResponse(),
         });
         responseInFlight = true;
         continue;
@@ -132,7 +194,7 @@ export async function runSimulate(opts: {
         });
         openai.send({
           type: "response.create",
-          response: { output_modalities: ["audio", "text"] },
+          response: createSimulateAudioResponse(),
         });
         responseInFlight = true;
       }
@@ -147,58 +209,7 @@ export async function runSimulate(opts: {
     if (type === "session.created") {
       openai.send({
         type: "session.update",
-        session: {
-          instructions:
-            "You are Vox in a local simulation. Respond naturally but concisely. Prefer calling `query_agent` for facts/actions.",
-          audio: {
-            input: {
-              format: { type: opts.config.openaiInputAudioType },
-              turn_detection: { type: "server_vad", create_response: false },
-              transcription: opts.config.openaiTranscriptionModel
-                ? { model: opts.config.openaiTranscriptionModel }
-                : undefined,
-            },
-            output: {
-              format: { type: opts.config.openaiOutputAudioType },
-              voice: opts.config.openaiRealtimeVoice ?? undefined,
-            },
-          },
-          tools: [
-            {
-              type: "function",
-              name: "query_agent",
-              description:
-                "Query the local/internal agent for facts, actions, or structured answers.",
-              parameters: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  question: {
-                    type: "string",
-                    description: "What you want to ask the internal agent.",
-                  },
-                  context: {
-                    type: "object",
-                    description: "Optional context for the internal agent.",
-                  },
-                },
-                required: ["question"],
-              },
-            },
-            {
-              type: "function",
-              name: "save_call_report",
-              description: "Persist a final call report to disk.",
-              parameters: {
-                type: "object",
-                additionalProperties: true,
-                properties: { report: { type: "object" } },
-                required: ["report"],
-              },
-            },
-          ],
-          tool_choice: "auto",
-        },
+        session: createSimulateSessionConfig(opts.config),
       });
       return;
     }
@@ -208,17 +219,19 @@ export async function runSimulate(opts: {
       if (opts.config.initialGreeting) {
         openai.send({
           type: "response.create",
-          response: {
-            instructions: opts.config.initialGreeting,
-            output_modalities: ["audio", "text"],
-          },
+          response: createSimulateAudioResponse(opts.config.initialGreeting),
         });
         responseInFlight = true;
       }
       return;
     }
 
-    if (type === "response.output_text.delta" || type === "response.text.delta") {
+    if (
+      type === "response.output_text.delta" ||
+      type === "response.text.delta" ||
+      type === "response.output_audio_transcript.delta" ||
+      type === "response.audio_transcript.delta"
+    ) {
       const delta = evt?.delta ?? evt?.text?.delta ?? "";
       if (typeof delta === "string" && delta.length) {
         if (!lastAssistantText.length) process.stdout.write("assistant> ");
@@ -228,7 +241,12 @@ export async function runSimulate(opts: {
       return;
     }
 
-    if (type === "response.output_text.done" || type === "response.text.done") {
+    if (
+      type === "response.output_text.done" ||
+      type === "response.text.done" ||
+      type === "response.output_audio_transcript.done" ||
+      type === "response.audio_transcript.done"
+    ) {
       if (lastAssistantText.length) process.stdout.write("\n");
       lastAssistantText = "";
       return;

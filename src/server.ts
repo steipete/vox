@@ -6,6 +6,7 @@ import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } 
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
 import { connectOpenAIRealtime } from "./openai.js";
+import { base64ByteLength, createPlaybackTimeline } from "./playback.js";
 import { twimlForStream, wsUrlFromPublicBase } from "./twiml.js";
 
 type StartServerOpts = {
@@ -79,12 +80,14 @@ export async function createVoxApp(config: VoxConfig): Promise<FastifyInstance> 
   return app;
 }
 
-async function handleTwilioSocket(opts: {
+export async function handleTwilioSocket(opts: {
   socket: any;
   req: any;
   config: VoxConfig;
+  connect?: typeof connectOpenAIRealtime;
 }): Promise<void> {
   const { socket, config } = opts;
+  const connect = opts.connect ?? connectOpenAIRealtime;
 
   let streamSid: string | null = null;
   let callSid: string | null = null;
@@ -104,14 +107,13 @@ async function handleTwilioSocket(opts: {
       ? createSubprocessAgentClient(config.agentCmd)
       : null;
 
-  const openai = await connectOpenAIRealtime({
+  const openai = await connect({
     apiKey: config.openaiApiKey,
     model: config.openaiRealtimeModel,
   });
 
   let sessionReady = false;
-  let lastAssistantItemId: string | null = null;
-  let lastAssistantItemStartedAtMs: number | null = null;
+  const playback = createPlaybackTimeline();
   let responseInFlight = false;
 
   const audioQueue: string[] = [];
@@ -140,14 +142,15 @@ async function handleTwilioSocket(opts: {
   };
 
   const truncateAssistantItem = () => {
-    if (!lastAssistantItemId || !lastAssistantItemStartedAtMs) return;
-    const elapsedMs = Math.max(0, Date.now() - lastAssistantItemStartedAtMs);
+    const truncation = playback.truncation();
+    if (!truncation) return;
     openai.send({
       type: "conversation.item.truncate",
-      item_id: lastAssistantItemId,
+      item_id: truncation.itemId,
       content_index: 0,
-      audio_end_ms: elapsedMs,
+      audio_end_ms: truncation.audioEndMs,
     });
+    playback.clear();
   };
 
   openai.onServerEvent((rawEvt) => {
@@ -189,10 +192,8 @@ async function handleTwilioSocket(opts: {
       const delta = evt?.delta ?? evt?.audio?.delta ?? null;
       const itemId = evt?.item_id ?? evt?.itemId ?? null;
       if (typeof itemId === "string") {
-        if (itemId !== lastAssistantItemId) {
-          lastAssistantItemId = itemId;
-          lastAssistantItemStartedAtMs = Date.now();
-        }
+        const audioBytes = typeof delta === "string" ? base64ByteLength(delta) : 0;
+        playback.onAssistantAudio(itemId, audioBytes);
       }
       if (typeof delta === "string" && delta.length > 0) {
         if (streamSid) sendTwilio({ event: "media", streamSid, media: { payload: delta } });
@@ -204,7 +205,9 @@ async function handleTwilioSocket(opts: {
 
     if (type === "response.output_audio.done" || type === "response.audio.done") {
       responseInFlight = false;
-      lastAssistantItemStartedAtMs = null;
+      // Do not forget the item here: the Realtime API delivers the whole
+      // response in a burst, so Twilio is still playing it out well after
+      // "done". A barge-in during that window must still be able to truncate.
       return;
     }
 
@@ -254,6 +257,9 @@ async function handleTwilioSocket(opts: {
     }
 
     if (msg.event === "media") {
+      // Twilio media timestamps are the presentation clock (ms from stream
+      // start); they advance in real time and drive barge-in truncation.
+      playback.onInboundMedia(Number(msg.media?.timestamp));
       const payload = msg.media?.payload;
       if (typeof payload !== "string") return;
       audioQueue.push(payload);

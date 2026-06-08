@@ -15,7 +15,7 @@ This repo is intentionally “thin glue”: WebSocket proxying, barge-in/interru
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 22
 - A public HTTPS URL to your laptop (Twilio needs to reach `/twiml` and `wss://.../twilio`). `ngrok` works fine.
 - OpenAI API key
 - Twilio account + a phone number (for PSTN calling)

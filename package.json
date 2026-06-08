@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsup src/cli.ts --format esm --target node20 --sourcemap --clean",
+    "build": "tsup src/cli.ts --format esm --target node22 --sourcemap --clean",
     "start": "node dist/cli.js",
     "typecheck": "tsgo -p tsconfig.json --noEmit",
     "test": "node --import tsx --test",

@@ -26,14 +26,20 @@ function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
 
 function fakeOpenAI() {
   const sent: any[] = [];
+  let closeCount = 0;
   let handler: ((evt: unknown) => void) | null = null;
   return {
     sent,
+    get closeCount() {
+      return closeCount;
+    },
     connect: async () => ({
       send: (evt: unknown) => {
         sent.push(evt);
       },
-      close: () => {},
+      close: () => {
+        closeCount += 1;
+      },
       onServerEvent: (h: (evt: unknown) => void) => {
         handler = h;
       },
@@ -56,8 +62,11 @@ function fakeSocket() {
       },
       close: () => {},
     },
-    emit: (data: any) => {
+    emitMessage: (data: any) => {
       for (const cb of listeners.message ?? []) cb(data);
+    },
+    emitClose: () => {
+      for (const cb of listeners.close ?? []) cb(undefined);
     },
   };
 }
@@ -65,77 +74,120 @@ function fakeSocket() {
 const media = (timestamp: number, payload = "AA==") =>
   JSON.stringify({ event: "media", media: { payload, timestamp: String(timestamp) } });
 
+const mark = (name: string) => JSON.stringify({ event: "mark", mark: { name } });
+
+const sentEvents = (sock: ReturnType<typeof fakeSocket>) => sock.sent.map((str) => JSON.parse(str));
+
 // 5 seconds of mu-law audio (8 bytes/ms) delivered as a single Realtime burst.
 const fiveSecondBurst = Buffer.alloc(8 * 5000).toString("base64");
 
-test("barge-in truncates at the media-clock offset even after audio.done", async () => {
+test("outbound assistant audio is followed by a Twilio playback mark", async () => {
   const oa = fakeOpenAI();
   const sock = fakeSocket();
   await handleTwilioSocket({ socket: sock.socket, req: {}, config: config(), connect: oa.connect });
 
-  sock.emit(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
+  sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
+  oa.emit({ type: "session.created" });
+  oa.emit({ type: "session.updated" });
+  oa.emit({ type: "response.output_audio.delta", item_id: "itemA", delta: fiveSecondBurst });
+
+  const events = sentEvents(sock).filter(
+    (event) => event.event === "media" || event.event === "mark",
+  );
+  assert.equal(events[0].event, "media");
+  assert.equal(events[0].media.payload, fiveSecondBurst);
+  assert.equal(events[1].event, "mark");
+  assert.match(events[1].mark.name, /^vox-\d+$/);
+});
+
+test("barge-in truncates pending marked audio even after audio.done", async () => {
+  const oa = fakeOpenAI();
+  const sock = fakeSocket();
+  await handleTwilioSocket({ socket: sock.socket, req: {}, config: config(), connect: oa.connect });
+
+  sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
   oa.emit({ type: "session.created" });
   oa.emit({ type: "session.updated" });
 
-  // caller audio advances the stream clock to 200ms, then the assistant speaks
-  for (const ts of [0, 100, 200]) sock.emit(media(ts));
+  for (const ts of [0, 100, 200]) sock.emitMessage(media(ts));
   oa.emit({ type: "response.output_audio.delta", item_id: "itemA", delta: fiveSecondBurst });
   oa.emit({ type: "response.output_audio.done", item_id: "itemA" });
 
-  // caller keeps streaming; at clock=1200 they cut in, 1000ms into a 5s reply
-  sock.emit(media(1200));
+  sock.emitMessage(media(1200));
   oa.emit({ type: "input_audio_buffer.speech_started" });
 
-  const truncate = oa.sent.find((e: any) => e?.type === "conversation.item.truncate");
-  assert.ok(truncate, "a truncate must be sent even though audio.done already fired");
+  const truncate = oa.sent.find((event: any) => event?.type === "conversation.item.truncate");
+  assert.ok(truncate, "a truncate must be sent while Twilio has not acked playback");
   assert.equal(truncate.item_id, "itemA");
   assert.equal(truncate.audio_end_ms, 1000);
+  assert.ok(sentEvents(sock).some((event) => event.event === "clear"));
 });
 
-test("caller speaking after full playout truncates at the generated length, not the elapsed clock", async () => {
+test("caller speech after acknowledged full playout does not truncate", async () => {
   const oa = fakeOpenAI();
   const sock = fakeSocket();
   await handleTwilioSocket({ socket: sock.socket, req: {}, config: config(), connect: oa.connect });
 
-  sock.emit(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
+  sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
   oa.emit({ type: "session.created" });
   oa.emit({ type: "session.updated" });
 
-  // caller audio advances the clock to 200ms, then the assistant delivers a 5s reply
-  for (const ts of [0, 100, 200]) sock.emit(media(ts));
+  for (const ts of [0, 100, 200]) sock.emitMessage(media(ts));
   oa.emit({ type: "response.output_audio.delta", item_id: "itemC", delta: fiveSecondBurst });
   oa.emit({ type: "response.output_audio.done", item_id: "itemC" });
 
-  // the caller hears the whole thing: the stream clock runs past responseStart + 5000ms
-  // (6000 = 5800ms elapsed, beyond the 5000ms that was generated) before they speak again
-  sock.emit(media(6000));
+  const playbackMark = sentEvents(sock).find((event) => event.event === "mark")?.mark.name;
+  assert.equal(typeof playbackMark, "string");
+  sock.emitMessage(media(5200));
+  sock.emitMessage(mark(playbackMark));
+  sock.emitMessage(media(6000));
   oa.emit({ type: "input_audio_buffer.speech_started" });
 
-  const truncate = oa.sent.find((e: any) => e?.type === "conversation.item.truncate");
-  assert.ok(truncate, "a truncate is still sent when the caller speaks after full playout");
-  assert.equal(truncate.item_id, "itemC");
-  // The caller heard all 5s, so truncation must report the full generated length,
-  // not the larger elapsed offset (which would claim more audio than ever existed).
-  assert.equal(truncate.audio_end_ms, 5000);
+  assert.equal(
+    oa.sent.some((event: any) => event?.type === "conversation.item.truncate"),
+    false,
+  );
 });
 
-test("barge-in during playback truncates at the played-out offset", async () => {
+test("overlap truncates the item Twilio is playing, not a later queued item", async () => {
   const oa = fakeOpenAI();
   const sock = fakeSocket();
   await handleTwilioSocket({ socket: sock.socket, req: {}, config: config(), connect: oa.connect });
 
-  sock.emit(JSON.stringify({ event: "start", start: { streamSid: "MZ1" } }));
+  sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1" } }));
   oa.emit({ type: "session.created" });
   oa.emit({ type: "session.updated" });
 
-  sock.emit(media(300));
+  sock.emitMessage(media(0));
+  oa.emit({ type: "response.output_audio.delta", item_id: "itemA", delta: fiveSecondBurst });
   oa.emit({ type: "response.output_audio.delta", item_id: "itemB", delta: fiveSecondBurst });
-  // no audio.done yet; caller cuts in at clock=800 (500ms in)
-  sock.emit(media(800));
+  sock.emitMessage(media(500));
   oa.emit({ type: "input_audio_buffer.speech_started" });
 
-  const truncate = oa.sent.find((e: any) => e?.type === "conversation.item.truncate");
-  assert.ok(truncate, "a truncate must be sent on barge-in");
-  assert.equal(truncate.item_id, "itemB");
+  const truncate = oa.sent.find((event: any) => event?.type === "conversation.item.truncate");
+  assert.ok(truncate);
+  assert.equal(truncate.item_id, "itemA");
   assert.equal(truncate.audio_end_ms, 500);
+});
+
+test("socket close drops pending playback and closes OpenAI once", async () => {
+  const oa = fakeOpenAI();
+  const sock = fakeSocket();
+  await handleTwilioSocket({ socket: sock.socket, req: {}, config: config(), connect: oa.connect });
+
+  sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1" } }));
+  oa.emit({ type: "session.created" });
+  oa.emit({ type: "session.updated" });
+  sock.emitMessage(media(0));
+  oa.emit({ type: "response.output_audio.delta", item_id: "itemA", delta: fiveSecondBurst });
+
+  sock.emitClose();
+  sock.emitMessage(media(500));
+  oa.emit({ type: "input_audio_buffer.speech_started" });
+
+  assert.equal(oa.closeCount, 1);
+  assert.equal(
+    oa.sent.some((event: any) => event?.type === "conversation.item.truncate"),
+    false,
+  );
 });

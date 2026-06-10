@@ -6,7 +6,7 @@ import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } 
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
 import { connectOpenAIRealtime } from "./openai.js";
-import { base64ByteLength, createPlaybackTimeline } from "./playback.js";
+import { base64ByteLength, createOutboundPlaybackTracker } from "./playback.js";
 import { twimlForStream, wsUrlFromPublicBase } from "./twiml.js";
 
 type StartServerOpts = {
@@ -27,11 +27,13 @@ type TwilioInboundMessage =
       streamSid?: string;
       media: { payload: string; track?: string; timestamp?: string };
     }
+  | { event: "mark"; streamSid?: string; mark: { name?: string } }
   | { event: "stop"; streamSid?: string }
   | { event: string; [k: string]: any };
 
 type TwilioOutboundMessage =
   | { event: "media"; streamSid: string; media: { payload: string } }
+  | { event: "mark"; streamSid: string; mark: { name: string } }
   | { event: "clear"; streamSid: string };
 
 export async function startServer({ host, port, config }: StartServerOpts): Promise<void> {
@@ -113,11 +115,12 @@ export async function handleTwilioSocket(opts: {
   });
 
   let sessionReady = false;
-  const playback = createPlaybackTimeline();
+  const playback = createOutboundPlaybackTracker();
   let responseInFlight = false;
+  let closed = false;
 
   const audioQueue: string[] = [];
-  const outboundAudioQueue: string[] = [];
+  const outboundAudioQueue: { itemId: string | null; payload: string }[] = [];
   const flushAudioQueue = () => {
     if (!sessionReady) return;
     while (audioQueue.length) {
@@ -131,14 +134,42 @@ export async function handleTwilioSocket(opts: {
     socket.send(JSON.stringify(msg));
   };
 
+  const sendAssistantAudio = (itemId: string | null, payload: string) => {
+    if (!streamSid) {
+      outboundAudioQueue.push({ itemId, payload });
+      return;
+    }
+    const mark = playback.onOutboundAudio(itemId, base64ByteLength(payload));
+    sendTwilio({ event: "media", streamSid, media: { payload } });
+    sendTwilio({ event: "mark", streamSid, mark: { name: mark.name } });
+  };
+
   const clearPlayback = () => {
     if (!streamSid) return;
     sendTwilio({ event: "clear", streamSid });
+    playback.clear();
   };
 
   const cancelResponse = () => {
     if (!responseInFlight) return;
     openai.send({ type: "response.cancel" });
+  };
+
+  const cleanupCall = () => {
+    if (closed) return;
+    closed = true;
+    playback.clear();
+    try {
+      openai.close();
+    } catch {
+      // ignore
+    }
+    try {
+      agent?.close();
+    } catch {
+      // ignore
+    }
+    logger.close();
   };
 
   const truncateAssistantItem = () => {
@@ -154,6 +185,7 @@ export async function handleTwilioSocket(opts: {
   };
 
   openai.onServerEvent((rawEvt) => {
+    if (closed) return;
     const evt = rawEvt as any;
     logger.event("openai", evt);
 
@@ -181,9 +213,9 @@ export async function handleTwilioSocket(opts: {
     }
 
     if (type === "input_audio_buffer.speech_started") {
+      truncateAssistantItem();
       clearPlayback();
       cancelResponse();
-      truncateAssistantItem();
       responseInFlight = false;
       return;
     }
@@ -191,13 +223,8 @@ export async function handleTwilioSocket(opts: {
     if (type === "response.output_audio.delta" || type === "response.audio.delta") {
       const delta = evt?.delta ?? evt?.audio?.delta ?? null;
       const itemId = evt?.item_id ?? evt?.itemId ?? null;
-      if (typeof itemId === "string") {
-        const audioBytes = typeof delta === "string" ? base64ByteLength(delta) : 0;
-        playback.onAssistantAudio(itemId, audioBytes);
-      }
       if (typeof delta === "string" && delta.length > 0) {
-        if (streamSid) sendTwilio({ event: "media", streamSid, media: { payload: delta } });
-        else outboundAudioQueue.push(delta);
+        sendAssistantAudio(typeof itemId === "string" ? itemId : null, delta);
       }
       responseInFlight = true;
       return;
@@ -236,6 +263,7 @@ export async function handleTwilioSocket(opts: {
   });
 
   const handleTwilioMessage = (text: string) => {
+    if (closed) return;
     let msg: TwilioInboundMessage;
     try {
       msg = JSON.parse(text) as TwilioInboundMessage;
@@ -249,8 +277,8 @@ export async function handleTwilioSocket(opts: {
       callSid = msg.start?.callSid ?? null;
       logger.event("vox", { type: "twilio.start", streamSid, callSid });
       if (streamSid && outboundAudioQueue.length) {
-        for (const payload of outboundAudioQueue.splice(0, outboundAudioQueue.length)) {
-          sendTwilio({ event: "media", streamSid, media: { payload } });
+        for (const chunk of outboundAudioQueue.splice(0, outboundAudioQueue.length)) {
+          sendAssistantAudio(chunk.itemId, chunk.payload);
         }
       }
       return;
@@ -268,19 +296,14 @@ export async function handleTwilioSocket(opts: {
       return;
     }
 
+    if (msg.event === "mark") {
+      playback.onMark(String(msg.mark?.name ?? ""));
+      return;
+    }
+
     if (msg.event === "stop") {
       logger.event("vox", { type: "twilio.stop" });
-      try {
-        openai.close();
-      } catch {
-        // ignore
-      }
-      try {
-        agent?.close();
-      } catch {
-        // ignore
-      }
-      logger.close();
+      cleanupCall();
       return;
     }
   };
@@ -293,18 +316,9 @@ export async function handleTwilioSocket(opts: {
   });
 
   socket.on("close", () => {
+    if (closed) return;
     logger.event("vox", { type: "twilio.ws.closed" });
-    try {
-      openai.close();
-    } catch {
-      // ignore
-    }
-    try {
-      agent?.close();
-    } catch {
-      // ignore
-    }
-    logger.close();
+    cleanupCall();
   });
 
   // persist some call metadata for debugging

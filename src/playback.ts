@@ -1,9 +1,15 @@
-// Audio on the Twilio Media Streams leg is always G.711 mu-law, 8 kHz mono,
-// i.e. 8 bytes per millisecond of audio. We use this to bound the truncation
-// point to the audio that was actually generated for an assistant turn.
+// Twilio Media Streams use G.711 mu-law, 8 kHz mono: 8 bytes per millisecond.
 const TWILIO_MULAW_BYTES_PER_MS = 8;
 
 export type AssistantTruncation = { itemId: string; audioEndMs: number };
+export type OutboundPlaybackMark = { name: string; durationMs: number };
+
+type PendingChunk = {
+  name: string;
+  itemId: string | null;
+  durationMs: number;
+  startedAtMediaTimestampMs: number | null;
+};
 
 /** Decoded byte length of a base64 string, without allocating the decoded buffer. */
 export function base64ByteLength(b64: string): number {
@@ -12,34 +18,42 @@ export function base64ByteLength(b64: string): number {
   return Math.max(0, Math.floor(b64.length / 4) * 3 - padding);
 }
 
-export type PlaybackTimeline = {
-  /** Record the presentation timestamp of an inbound Twilio media frame (ms from stream start). */
+export type OutboundPlaybackTracker = {
+  /** Record the presentation timestamp of an inbound Twilio media frame. */
   onInboundMedia(timestampMs: number): void;
-  /** Record audio generated for an assistant item; byteLength is the decoded mu-law byte count. */
-  onAssistantAudio(itemId: string, audioByteLength: number): void;
-  /** The truncation to send to the Realtime API on barge-in, or null if there is nothing to truncate. */
+  /** Register an outbound media message and return the Twilio mark to send after it. */
+  onOutboundAudio(itemId: string | null, audioByteLength: number): OutboundPlaybackMark;
+  /** Record Twilio's acknowledgement that a mark has completed playback. */
+  onMark(name: string): void;
+  /** The assistant item currently being played, or null if Twilio has acked all queued audio. */
   truncation(): AssistantTruncation | null;
-  /** Forget the current assistant item (after it has been truncated). */
+  /** Drop pending playback state after Twilio clear/stream teardown. */
   clear(): void;
 };
 
-/**
- * Tracks how much of the assistant's current turn the caller has actually heard,
- * using Twilio's media-stream presentation clock rather than wall-clock time.
- *
- * The Realtime API streams a whole response in a burst that is far shorter than
- * its real playback duration, so wall-clock elapsed since the first audio chunk
- * is unrelated to how much audio has been played out. Twilio's inbound media
- * timestamps advance in real time, so `latestMediaTimestamp - responseStart`
- * is the played-out offset to truncate at.
- */
-export function createPlaybackTimeline(
+export function createOutboundPlaybackTracker(
   bytesPerMs: number = TWILIO_MULAW_BYTES_PER_MS,
-): PlaybackTimeline {
+): OutboundPlaybackTracker {
   let latestMediaTimestampMs = 0;
-  let currentItemId: string | null = null;
-  let responseStartMediaTimestampMs: number | null = null;
-  let generatedAudioMs = 0;
+  let nextMarkId = 1;
+  const pending: PendingChunk[] = [];
+  const playedMsByItem = new Map<string, number>();
+
+  const markPlayedThrough = (markIndex: number) => {
+    for (let i = 0; i <= markIndex; i++) {
+      const chunk = pending.shift();
+      if (!chunk) break;
+      if (chunk.itemId) {
+        playedMsByItem.set(
+          chunk.itemId,
+          (playedMsByItem.get(chunk.itemId) ?? 0) + chunk.durationMs,
+        );
+      }
+    }
+    if (pending[0]?.startedAtMediaTimestampMs === null) {
+      pending[0].startedAtMediaTimestampMs = latestMediaTimestampMs;
+    }
+  };
 
   return {
     onInboundMedia(timestampMs) {
@@ -48,29 +62,45 @@ export function createPlaybackTimeline(
       }
     },
 
-    onAssistantAudio(itemId, audioByteLength) {
-      if (!itemId) return;
-      if (itemId !== currentItemId) {
-        currentItemId = itemId;
-        responseStartMediaTimestampMs = latestMediaTimestampMs;
-        generatedAudioMs = 0;
-      }
-      if (Number.isFinite(audioByteLength) && audioByteLength > 0 && bytesPerMs > 0) {
-        generatedAudioMs += audioByteLength / bytesPerMs;
-      }
+    onOutboundAudio(itemId, audioByteLength) {
+      const durationMs =
+        Number.isFinite(audioByteLength) && audioByteLength > 0 && bytesPerMs > 0
+          ? audioByteLength / bytesPerMs
+          : 0;
+      const mark = { name: `vox-${nextMarkId++}`, durationMs };
+      pending.push({
+        name: mark.name,
+        itemId,
+        durationMs,
+        startedAtMediaTimestampMs: pending.length === 0 ? latestMediaTimestampMs : null,
+      });
+      return mark;
+    },
+
+    onMark(name) {
+      if (!name) return;
+      const markIndex = pending.findIndex((chunk) => chunk.name === name);
+      if (markIndex === -1) return;
+      markPlayedThrough(markIndex);
     },
 
     truncation() {
-      if (currentItemId === null || responseStartMediaTimestampMs === null) return null;
-      const elapsedMs = Math.max(0, latestMediaTimestampMs - responseStartMediaTimestampMs);
-      const audioEndMs = Math.min(elapsedMs, generatedAudioMs);
-      return { itemId: currentItemId, audioEndMs: Math.round(audioEndMs) };
+      const chunk = pending[0];
+      if (!chunk?.itemId) return null;
+      const startedAt = chunk.startedAtMediaTimestampMs ?? latestMediaTimestampMs;
+      const playedWithinChunkMs = Math.min(
+        chunk.durationMs,
+        Math.max(0, latestMediaTimestampMs - startedAt),
+      );
+      return {
+        itemId: chunk.itemId,
+        audioEndMs: Math.round((playedMsByItem.get(chunk.itemId) ?? 0) + playedWithinChunkMs),
+      };
     },
 
     clear() {
-      currentItemId = null;
-      responseStartMediaTimestampMs = null;
-      generatedAudioMs = 0;
+      pending.length = 0;
+      playedMsByItem.clear();
     },
   };
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { base64ByteLength, createPlaybackTimeline } from "../src/playback.js";
+import { base64ByteLength, createOutboundPlaybackTracker } from "../src/playback.js";
 
 test("base64ByteLength matches the decoded buffer length", () => {
   for (const sample of ["", "AA==", "AAA=", "AAAA", Buffer.alloc(8 * 1234).toString("base64")]) {
@@ -11,61 +11,70 @@ test("base64ByteLength matches the decoded buffer length", () => {
 // G.711 mu-law on the Twilio leg is 8 kHz mono => 8 bytes per millisecond.
 const msAudio = (ms: number) => 8 * ms;
 
-test("truncation uses the Twilio media-stream clock, not wall time", () => {
-  const tl = createPlaybackTimeline();
-  tl.onInboundMedia(200); // stream clock at 200ms when the assistant starts speaking
-  tl.onAssistantAudio("itemA", msAudio(5000)); // 5s of audio generated in a burst
-  tl.onInboundMedia(1200); // caller has now heard ~1000ms of it
+test("truncation uses the Twilio media clock while a marked chunk is pending", () => {
+  const playback = createOutboundPlaybackTracker();
+  playback.onInboundMedia(200);
+  playback.onOutboundAudio("itemA", msAudio(5000));
+  playback.onInboundMedia(1200);
 
-  assert.deepEqual(tl.truncation(), { itemId: "itemA", audioEndMs: 1000 });
+  assert.deepEqual(playback.truncation(), { itemId: "itemA", audioEndMs: 1000 });
 });
 
-test("truncation survives after all audio is delivered (not nulled on done)", () => {
-  const tl = createPlaybackTimeline();
-  tl.onInboundMedia(0);
-  // whole response arrives as one burst, as the Realtime API does
-  tl.onAssistantAudio("itemA", msAudio(5000));
-  tl.onInboundMedia(1000); // barge-in 1s into a 5s reply, after the burst finished
+test("mark acknowledgement proves full playout and prevents late truncation", () => {
+  const playback = createOutboundPlaybackTracker();
+  playback.onInboundMedia(200);
+  const mark = playback.onOutboundAudio("itemA", msAudio(5000));
+  playback.onInboundMedia(5200);
+  playback.onMark(mark.name);
+  playback.onInboundMedia(6000);
 
-  const t = tl.truncation();
-  assert.notEqual(t, null);
-  assert.equal(t?.itemId, "itemA");
-  assert.equal(t?.audioEndMs, 1000);
+  assert.equal(playback.truncation(), null);
 });
 
-test("audio_end_ms is clamped to the audio actually generated", () => {
-  const tl = createPlaybackTimeline();
-  tl.onInboundMedia(0);
-  tl.onAssistantAudio("itemA", msAudio(300)); // only 300ms generated
-  tl.onInboundMedia(5000); // caller barges in long after playback finished
+test("mark acknowledgement advances playback into the next queued chunk", () => {
+  const playback = createOutboundPlaybackTracker();
+  playback.onInboundMedia(0);
+  const first = playback.onOutboundAudio("itemA", msAudio(1000));
+  playback.onOutboundAudio("itemA", msAudio(1000));
 
-  assert.equal(tl.truncation()?.audioEndMs, 300);
+  playback.onInboundMedia(1000);
+  playback.onMark(first.name);
+  playback.onInboundMedia(1250);
+
+  assert.deepEqual(playback.truncation(), { itemId: "itemA", audioEndMs: 1250 });
 });
 
-test("a new assistant item resets the response start", () => {
-  const tl = createPlaybackTimeline();
-  tl.onInboundMedia(100);
-  tl.onAssistantAudio("itemA", msAudio(2000));
-  tl.onInboundMedia(500);
-  tl.onAssistantAudio("itemB", msAudio(2000)); // rolls to a new item at clock=500
+test("overlap truncates the item actually playing, not a later queued item", () => {
+  const playback = createOutboundPlaybackTracker();
+  playback.onInboundMedia(0);
+  playback.onOutboundAudio("itemA", msAudio(1000));
+  playback.onOutboundAudio("itemB", msAudio(1000));
+  playback.onInboundMedia(500);
 
-  tl.onInboundMedia(900);
-  assert.deepEqual(tl.truncation(), { itemId: "itemB", audioEndMs: 400 });
+  assert.deepEqual(playback.truncation(), { itemId: "itemA", audioEndMs: 500 });
 });
 
-test("clear() prevents a second truncation of the same item", () => {
-  const tl = createPlaybackTimeline();
-  tl.onInboundMedia(0);
-  tl.onAssistantAudio("itemA", msAudio(2000));
-  tl.onInboundMedia(500);
-  assert.notEqual(tl.truncation(), null);
+test("next queued item starts when the previous mark is acknowledged", () => {
+  const playback = createOutboundPlaybackTracker();
+  playback.onInboundMedia(0);
+  const first = playback.onOutboundAudio("itemA", msAudio(500));
+  playback.onOutboundAudio("itemB", msAudio(1000));
 
-  tl.clear();
-  assert.equal(tl.truncation(), null);
+  playback.onInboundMedia(500);
+  playback.onMark(first.name);
+  playback.onInboundMedia(800);
+
+  assert.deepEqual(playback.truncation(), { itemId: "itemB", audioEndMs: 300 });
 });
 
-test("no truncation before any assistant audio", () => {
-  const tl = createPlaybackTimeline();
-  tl.onInboundMedia(500);
-  assert.equal(tl.truncation(), null);
+test("clear drops pending marks from an interrupted stream", () => {
+  const playback = createOutboundPlaybackTracker();
+  playback.onInboundMedia(0);
+  const mark = playback.onOutboundAudio("itemA", msAudio(1000));
+  playback.onInboundMedia(300);
+  assert.notEqual(playback.truncation(), null);
+
+  playback.clear();
+  playback.onMark(mark.name);
+  assert.equal(playback.truncation(), null);
 });

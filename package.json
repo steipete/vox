@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsup src/cli.ts --format esm --target node20 --sourcemap --clean",
+    "build": "tsup src/cli.ts --format esm --target node22 --sourcemap --clean",
     "start": "node dist/cli.js",
     "typecheck": "tsgo -p tsconfig.json --noEmit",
     "test": "node --import tsx --test",
@@ -22,16 +22,16 @@
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "fastify": "^5.8.5",
-    "ws": "^8.20.1"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.2",
     "@types/ws": "^8.18.1",
-    "@typescript/native-preview": "7.0.0-dev.20260514.1",
-    "oxfmt": "^0.49.0",
-    "oxlint": "^1.64.0",
+    "@typescript/native-preview": "7.0.0-dev.20260609.1",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
     "tsup": "^8.5.1",
-    "tsx": "^4.22.0",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@10.33.2"

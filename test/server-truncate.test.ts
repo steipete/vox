@@ -165,9 +165,12 @@ test("overlap truncates the item Twilio is playing, not a later queued item", as
   oa.emit({ type: "input_audio_buffer.speech_started" });
 
   const truncate = oa.sent.find((event: any) => event?.type === "conversation.item.truncate");
+  const deleted = oa.sent.find((event: any) => event?.type === "conversation.item.delete");
   assert.ok(truncate);
   assert.equal(truncate.item_id, "itemA");
   assert.equal(truncate.audio_end_ms, 500);
+  assert.ok(deleted);
+  assert.equal(deleted.item_id, "itemB");
 });
 
 test("socket close drops pending playback and closes OpenAI once", async () => {

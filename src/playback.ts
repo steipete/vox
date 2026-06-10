@@ -3,6 +3,10 @@ const TWILIO_MULAW_BYTES_PER_MS = 8;
 
 export type AssistantTruncation = { itemId: string; audioEndMs: number };
 export type OutboundPlaybackMark = { name: string; durationMs: number };
+export type PlaybackInterruption = {
+  truncation: AssistantTruncation | null;
+  deleteItemIds: string[];
+};
 
 type PendingChunk = {
   name: string;
@@ -27,6 +31,8 @@ export type OutboundPlaybackTracker = {
   onMark(name: string): void;
   /** The assistant item currently being played, or null if Twilio has acked all queued audio. */
   truncation(): AssistantTruncation | null;
+  /** OpenAI conversation updates needed when Twilio clears all unplayed audio. */
+  interruption(): PlaybackInterruption;
   /** Drop pending playback state after Twilio clear/stream teardown. */
   clear(): void;
 };
@@ -96,6 +102,19 @@ export function createOutboundPlaybackTracker(
         itemId: chunk.itemId,
         audioEndMs: Math.round((playedMsByItem.get(chunk.itemId) ?? 0) + playedWithinChunkMs),
       };
+    },
+
+    interruption() {
+      const truncation = this.truncation();
+      const deleteItemIds: string[] = [];
+      const keepItemId = truncation?.itemId ?? null;
+      for (const chunk of pending) {
+        if (!chunk.itemId || chunk.itemId === keepItemId || deleteItemIds.includes(chunk.itemId)) {
+          continue;
+        }
+        deleteItemIds.push(chunk.itemId);
+      }
+      return { truncation, deleteItemIds };
     },
 
     clear() {

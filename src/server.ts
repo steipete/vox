@@ -172,15 +172,19 @@ export async function handleTwilioSocket(opts: {
     logger.close();
   };
 
-  const truncateAssistantItem = () => {
-    const truncation = playback.truncation();
-    if (!truncation) return;
-    openai.send({
-      type: "conversation.item.truncate",
-      item_id: truncation.itemId,
-      content_index: 0,
-      audio_end_ms: truncation.audioEndMs,
-    });
+  const syncInterruptedPlayback = () => {
+    const interruption = playback.interruption();
+    if (interruption.truncation) {
+      openai.send({
+        type: "conversation.item.truncate",
+        item_id: interruption.truncation.itemId,
+        content_index: 0,
+        audio_end_ms: interruption.truncation.audioEndMs,
+      });
+    }
+    for (const itemId of interruption.deleteItemIds) {
+      openai.send({ type: "conversation.item.delete", item_id: itemId });
+    }
     playback.clear();
   };
 
@@ -213,7 +217,7 @@ export async function handleTwilioSocket(opts: {
     }
 
     if (type === "input_audio_buffer.speech_started") {
-      truncateAssistantItem();
+      syncInterruptedPlayback();
       clearPlayback();
       cancelResponse();
       responseInFlight = false;

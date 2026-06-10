@@ -52,6 +52,10 @@ test("overlap truncates the item actually playing, not a later queued item", () 
   playback.onInboundMedia(500);
 
   assert.deepEqual(playback.truncation(), { itemId: "itemA", audioEndMs: 500 });
+  assert.deepEqual(playback.interruption(), {
+    truncation: { itemId: "itemA", audioEndMs: 500 },
+    deleteItemIds: ["itemB"],
+  });
 });
 
 test("next queued item starts when the previous mark is acknowledged", () => {

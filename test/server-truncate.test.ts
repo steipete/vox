@@ -92,6 +92,33 @@ test("barge-in truncates at the media-clock offset even after audio.done", async
   assert.equal(truncate.audio_end_ms, 1000);
 });
 
+test("caller speaking after full playout truncates at the generated length, not the elapsed clock", async () => {
+  const oa = fakeOpenAI();
+  const sock = fakeSocket();
+  await handleTwilioSocket({ socket: sock.socket, req: {}, config: config(), connect: oa.connect });
+
+  sock.emit(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
+  oa.emit({ type: "session.created" });
+  oa.emit({ type: "session.updated" });
+
+  // caller audio advances the clock to 200ms, then the assistant delivers a 5s reply
+  for (const ts of [0, 100, 200]) sock.emit(media(ts));
+  oa.emit({ type: "response.output_audio.delta", item_id: "itemC", delta: fiveSecondBurst });
+  oa.emit({ type: "response.output_audio.done", item_id: "itemC" });
+
+  // the caller hears the whole thing: the stream clock runs past responseStart + 5000ms
+  // (6000 = 5800ms elapsed, beyond the 5000ms that was generated) before they speak again
+  sock.emit(media(6000));
+  oa.emit({ type: "input_audio_buffer.speech_started" });
+
+  const truncate = oa.sent.find((e: any) => e?.type === "conversation.item.truncate");
+  assert.ok(truncate, "a truncate is still sent when the caller speaks after full playout");
+  assert.equal(truncate.item_id, "itemC");
+  // The caller heard all 5s, so truncation must report the full generated length,
+  // not the larger elapsed offset (which would claim more audio than ever existed).
+  assert.equal(truncate.audio_end_ms, 5000);
+});
+
 test("barge-in during playback truncates at the played-out offset", async () => {
   const oa = fakeOpenAI();
   const sock = fakeSocket();

@@ -6,6 +6,7 @@ import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } 
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
 import { connectOpenAIRealtime } from "./openai.js";
+import { base64ByteLength, createOutboundPlaybackTracker } from "./playback.js";
 import { twimlForStream, wsUrlFromPublicBase } from "./twiml.js";
 
 type StartServerOpts = {
@@ -26,11 +27,13 @@ type TwilioInboundMessage =
       streamSid?: string;
       media: { payload: string; track?: string; timestamp?: string };
     }
+  | { event: "mark"; streamSid?: string; mark: { name?: string } }
   | { event: "stop"; streamSid?: string }
   | { event: string; [k: string]: any };
 
 type TwilioOutboundMessage =
   | { event: "media"; streamSid: string; media: { payload: string } }
+  | { event: "mark"; streamSid: string; mark: { name: string } }
   | { event: "clear"; streamSid: string };
 
 export async function startServer({ host, port, config }: StartServerOpts): Promise<void> {
@@ -79,12 +82,14 @@ export async function createVoxApp(config: VoxConfig): Promise<FastifyInstance> 
   return app;
 }
 
-async function handleTwilioSocket(opts: {
+export async function handleTwilioSocket(opts: {
   socket: any;
   req: any;
   config: VoxConfig;
+  connect?: typeof connectOpenAIRealtime;
 }): Promise<void> {
   const { socket, config } = opts;
+  const connect = opts.connect ?? connectOpenAIRealtime;
 
   let streamSid: string | null = null;
   let callSid: string | null = null;
@@ -104,18 +109,17 @@ async function handleTwilioSocket(opts: {
       ? createSubprocessAgentClient(config.agentCmd)
       : null;
 
-  const openai = await connectOpenAIRealtime({
+  const openai = await connect({
     apiKey: config.openaiApiKey,
     model: config.openaiRealtimeModel,
   });
 
   let sessionReady = false;
-  let lastAssistantItemId: string | null = null;
-  let lastAssistantItemStartedAtMs: number | null = null;
-  let responseInFlight = false;
+  const playback = createOutboundPlaybackTracker();
+  let closed = false;
 
   const audioQueue: string[] = [];
-  const outboundAudioQueue: string[] = [];
+  const outboundAudioQueue: { itemId: string | null; payload: string }[] = [];
   const flushAudioQueue = () => {
     if (!sessionReady) return;
     while (audioQueue.length) {
@@ -129,28 +133,57 @@ async function handleTwilioSocket(opts: {
     socket.send(JSON.stringify(msg));
   };
 
+  const sendAssistantAudio = (itemId: string | null, payload: string) => {
+    if (!streamSid) {
+      outboundAudioQueue.push({ itemId, payload });
+      return;
+    }
+    const mark = playback.onOutboundAudio(itemId, base64ByteLength(payload));
+    sendTwilio({ event: "media", streamSid, media: { payload } });
+    sendTwilio({ event: "mark", streamSid, mark: { name: mark.name } });
+  };
+
   const clearPlayback = () => {
     if (!streamSid) return;
     sendTwilio({ event: "clear", streamSid });
+    playback.clear();
   };
 
-  const cancelResponse = () => {
-    if (!responseInFlight) return;
-    openai.send({ type: "response.cancel" });
+  const cleanupCall = () => {
+    if (closed) return;
+    closed = true;
+    playback.clear();
+    try {
+      openai.close();
+    } catch {
+      // ignore
+    }
+    try {
+      agent?.close();
+    } catch {
+      // ignore
+    }
+    logger.close();
   };
 
-  const truncateAssistantItem = () => {
-    if (!lastAssistantItemId || !lastAssistantItemStartedAtMs) return;
-    const elapsedMs = Math.max(0, Date.now() - lastAssistantItemStartedAtMs);
-    openai.send({
-      type: "conversation.item.truncate",
-      item_id: lastAssistantItemId,
-      content_index: 0,
-      audio_end_ms: elapsedMs,
-    });
+  const syncInterruptedPlayback = () => {
+    const interruption = playback.interruption();
+    if (interruption.truncation) {
+      openai.send({
+        type: "conversation.item.truncate",
+        item_id: interruption.truncation.itemId,
+        content_index: 0,
+        audio_end_ms: interruption.truncation.audioEndMs,
+      });
+    }
+    for (const itemId of interruption.deleteItemIds) {
+      openai.send({ type: "conversation.item.delete", item_id: itemId });
+    }
+    playback.clear();
   };
 
   openai.onServerEvent((rawEvt) => {
+    if (closed) return;
     const evt = rawEvt as any;
     logger.event("openai", evt);
 
@@ -172,44 +205,33 @@ async function handleTwilioSocket(opts: {
           type: "response.create",
           response: createInitialGreetingResponse(config.initialGreeting),
         });
-        responseInFlight = true;
       }
       return;
     }
 
     if (type === "input_audio_buffer.speech_started") {
+      syncInterruptedPlayback();
       clearPlayback();
-      cancelResponse();
-      truncateAssistantItem();
-      responseInFlight = false;
       return;
     }
 
     if (type === "response.output_audio.delta" || type === "response.audio.delta") {
       const delta = evt?.delta ?? evt?.audio?.delta ?? null;
       const itemId = evt?.item_id ?? evt?.itemId ?? null;
-      if (typeof itemId === "string") {
-        if (itemId !== lastAssistantItemId) {
-          lastAssistantItemId = itemId;
-          lastAssistantItemStartedAtMs = Date.now();
-        }
-      }
       if (typeof delta === "string" && delta.length > 0) {
-        if (streamSid) sendTwilio({ event: "media", streamSid, media: { payload: delta } });
-        else outboundAudioQueue.push(delta);
+        sendAssistantAudio(typeof itemId === "string" ? itemId : null, delta);
       }
-      responseInFlight = true;
       return;
     }
 
     if (type === "response.output_audio.done" || type === "response.audio.done") {
-      responseInFlight = false;
-      lastAssistantItemStartedAtMs = null;
+      // Do not forget the item here: the Realtime API delivers the whole
+      // response in a burst, so Twilio is still playing it out well after
+      // "done". A barge-in during that window must still be able to truncate.
       return;
     }
 
     if (type === "response.done") {
-      responseInFlight = false;
       void handleResponseDone({
         evt,
         openai,
@@ -233,6 +255,7 @@ async function handleTwilioSocket(opts: {
   });
 
   const handleTwilioMessage = (text: string) => {
+    if (closed) return;
     let msg: TwilioInboundMessage;
     try {
       msg = JSON.parse(text) as TwilioInboundMessage;
@@ -246,14 +269,17 @@ async function handleTwilioSocket(opts: {
       callSid = msg.start?.callSid ?? null;
       logger.event("vox", { type: "twilio.start", streamSid, callSid });
       if (streamSid && outboundAudioQueue.length) {
-        for (const payload of outboundAudioQueue.splice(0, outboundAudioQueue.length)) {
-          sendTwilio({ event: "media", streamSid, media: { payload } });
+        for (const chunk of outboundAudioQueue.splice(0, outboundAudioQueue.length)) {
+          sendAssistantAudio(chunk.itemId, chunk.payload);
         }
       }
       return;
     }
 
     if (msg.event === "media") {
+      // Twilio media timestamps are the presentation clock (ms from stream
+      // start); they advance in real time and drive barge-in truncation.
+      playback.onInboundMedia(Number(msg.media?.timestamp));
       const payload = msg.media?.payload;
       if (typeof payload !== "string") return;
       audioQueue.push(payload);
@@ -262,19 +288,14 @@ async function handleTwilioSocket(opts: {
       return;
     }
 
+    if (msg.event === "mark") {
+      playback.onMark(String(msg.mark?.name ?? ""));
+      return;
+    }
+
     if (msg.event === "stop") {
       logger.event("vox", { type: "twilio.stop" });
-      try {
-        openai.close();
-      } catch {
-        // ignore
-      }
-      try {
-        agent?.close();
-      } catch {
-        // ignore
-      }
-      logger.close();
+      cleanupCall();
       return;
     }
   };
@@ -287,18 +308,9 @@ async function handleTwilioSocket(opts: {
   });
 
   socket.on("close", () => {
+    if (closed) return;
     logger.event("vox", { type: "twilio.ws.closed" });
-    try {
-      openai.close();
-    } catch {
-      // ignore
-    }
-    try {
-      agent?.close();
-    } catch {
-      // ignore
-    }
-    logger.close();
+    cleanupCall();
   });
 
   // persist some call metadata for debugging

@@ -18,6 +18,7 @@ export function createCallLogger(baseDir: string, id: string): CallLogger {
   // end, ENOSPC) into an uncaught exception that kills every call on the
   // server. Logging must never take the bridge down.
   stream.on("error", (err) => {
+    closed = true;
     process.stderr.write(`vox: call log write failed for ${id}: ${err.message}\n`);
   });
 

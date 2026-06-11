@@ -120,6 +120,11 @@ test("barge-in truncates pending marked audio even after audio.done", async () =
   assert.ok(truncate, "a truncate must be sent while Twilio has not acked playback");
   assert.equal(truncate.item_id, "itemA");
   assert.equal(truncate.audio_end_ms, 1000);
+  assert.equal(
+    oa.sent.some((event: any) => event?.type === "response.cancel"),
+    false,
+    "server VAD already cancels the active response when interrupt_response is enabled",
+  );
   assert.ok(sentEvents(sock).some((event) => event.event === "clear"));
 });
 

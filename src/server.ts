@@ -116,7 +116,6 @@ export async function handleTwilioSocket(opts: {
 
   let sessionReady = false;
   const playback = createOutboundPlaybackTracker();
-  let responseInFlight = false;
   let closed = false;
 
   const audioQueue: string[] = [];
@@ -148,11 +147,6 @@ export async function handleTwilioSocket(opts: {
     if (!streamSid) return;
     sendTwilio({ event: "clear", streamSid });
     playback.clear();
-  };
-
-  const cancelResponse = () => {
-    if (!responseInFlight) return;
-    openai.send({ type: "response.cancel" });
   };
 
   const cleanupCall = () => {
@@ -211,7 +205,6 @@ export async function handleTwilioSocket(opts: {
           type: "response.create",
           response: createInitialGreetingResponse(config.initialGreeting),
         });
-        responseInFlight = true;
       }
       return;
     }
@@ -219,8 +212,6 @@ export async function handleTwilioSocket(opts: {
     if (type === "input_audio_buffer.speech_started") {
       syncInterruptedPlayback();
       clearPlayback();
-      cancelResponse();
-      responseInFlight = false;
       return;
     }
 
@@ -230,12 +221,10 @@ export async function handleTwilioSocket(opts: {
       if (typeof delta === "string" && delta.length > 0) {
         sendAssistantAudio(typeof itemId === "string" ? itemId : null, delta);
       }
-      responseInFlight = true;
       return;
     }
 
     if (type === "response.output_audio.done" || type === "response.audio.done") {
-      responseInFlight = false;
       // Do not forget the item here: the Realtime API delivers the whole
       // response in a burst, so Twilio is still playing it out well after
       // "done". A barge-in during that window must still be able to truncate.
@@ -243,7 +232,6 @@ export async function handleTwilioSocket(opts: {
     }
 
     if (type === "response.done") {
-      responseInFlight = false;
       void handleResponseDone({
         evt,
         openai,

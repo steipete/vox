@@ -114,6 +114,7 @@ export async function handleTwilioSocket(opts: {
   const openai = await connect({
     apiKey: config.openaiApiKey,
     model: config.openaiRealtimeModel,
+    url: config.openaiRealtimeUrl ?? undefined,
   });
 
   let sessionReady = false;
@@ -183,6 +184,20 @@ export async function handleTwilioSocket(opts: {
     }
     playback.clear();
   };
+
+  // A mid-call OpenAI disconnect must end the Twilio call too; otherwise the
+  // caller sits in dead air on a bridge that can no longer answer, and the
+  // agent client and logger leak until Twilio gives up.
+  openai.onClose(({ code, reason }) => {
+    if (closed) return;
+    logger.event("vox", { type: "openai.ws.closed", code, reason });
+    cleanupCall();
+    try {
+      socket.close();
+    } catch {
+      // ignore
+    }
+  });
 
   openai.onServerEvent((rawEvt) => {
     if (closed) return;

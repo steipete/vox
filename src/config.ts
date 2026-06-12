@@ -2,6 +2,7 @@ export type VoxConfig = {
   openaiApiKey: string;
   openaiRealtimeModel: string;
   openaiRealtimeVoice: string | null;
+  openaiRealtimeUrl: string | null;
   openaiInputAudioType: "audio/pcmu";
   openaiOutputAudioType: "audio/pcmu";
   openaiTranscriptionModel: string | null;
@@ -35,6 +36,9 @@ export function loadConfig(): VoxConfig {
 
   const openaiRealtimeModel = env("OPENAI_REALTIME_MODEL") ?? "gpt-realtime";
   const openaiRealtimeVoice = env("OPENAI_REALTIME_VOICE");
+  // Optional ws(s):// endpoint override: realtime gateways, self-hosted
+  // relays, or a local stand-in when exercising the bridge end-to-end.
+  const openaiRealtimeUrl = envUrl("OPENAI_REALTIME_URL")?.toString() ?? null;
 
   const openaiInputAudioType = "audio/pcmu" as const;
   const openaiOutputAudioType = "audio/pcmu" as const;
@@ -57,6 +61,7 @@ export function loadConfig(): VoxConfig {
     openaiApiKey,
     openaiRealtimeModel,
     openaiRealtimeVoice,
+    openaiRealtimeUrl,
     openaiInputAudioType,
     openaiOutputAudioType,
     openaiTranscriptionModel,

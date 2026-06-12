@@ -13,6 +13,7 @@ function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
     openaiApiKey: "test",
     openaiRealtimeModel: "gpt-realtime",
     openaiRealtimeVoice: "marin",
+    openaiRealtimeUrl: null,
     openaiInputAudioType: "audio/pcmu",
     openaiOutputAudioType: "audio/pcmu",
     openaiTranscriptionModel: "gpt-4o-transcribe",

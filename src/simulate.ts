@@ -90,6 +90,7 @@ export async function runSimulate(opts: {
   const openai = await connectOpenAIRealtime({
     apiKey: opts.config.openaiApiKey,
     model: opts.config.openaiRealtimeModel,
+    url: opts.config.openaiRealtimeUrl ?? undefined,
   });
 
   let sessionReady = false;

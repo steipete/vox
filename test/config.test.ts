@@ -43,6 +43,31 @@ test("loadConfig rejects VOX_AGENT_URL + VOX_AGENT_CMD together", async () => {
   );
 });
 
+test("loadConfig parses OPENAI_REALTIME_URL and defaults it to null", async () => {
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      OPENAI_REALTIME_URL: "ws://127.0.0.1:4242/realtime",
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.equal(loadConfig().openaiRealtimeUrl, "ws://127.0.0.1:4242/realtime");
+    },
+  );
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      OPENAI_REALTIME_URL: undefined,
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.equal(loadConfig().openaiRealtimeUrl, null);
+    },
+  );
+});
+
 test("loadConfig parses VOX_PUBLIC_BASE_URL", async () => {
   await withEnv(
     {

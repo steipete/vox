@@ -3,6 +3,7 @@
 ## 0.1.1 - Unreleased
 
 - Prevent late call-log and tool callbacks after teardown from crashing the Vox server. Thanks @joeVenner.
+- Refresh Node.js types, the native TypeScript preview, and the pnpm 10.x toolchain.
 
 ## 0.1.0 - 2026-06-11
 

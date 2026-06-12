@@ -87,15 +87,17 @@ export async function handleTwilioSocket(opts: {
   req: any;
   config: VoxConfig;
   connect?: typeof connectOpenAIRealtime;
+  createLogger?: typeof createCallLogger;
 }): Promise<void> {
   const { socket, config } = opts;
   const connect = opts.connect ?? connectOpenAIRealtime;
+  const createLogger = opts.createLogger ?? createCallLogger;
 
   let streamSid: string | null = null;
   let callSid: string | null = null;
 
   const logId = `call_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  const logger = createCallLogger(config.logDir, logId);
+  const logger = createLogger(config.logDir, logId);
   logger.event("vox", { type: "twilio.ws.connected" });
 
   const earlyMessages = createEarlyTwilioMessageBuffer();
@@ -239,7 +241,9 @@ export async function handleTwilioSocket(opts: {
         logger,
         logDir: logger.dir,
         callContext: { callSid, streamSid },
+        isClosed: () => closed,
       }).catch((err) => {
+        if (closed) return;
         logger.event("vox", {
           type: "tool.error",
           error: err instanceof Error ? err.message : String(err),
@@ -409,12 +413,14 @@ async function handleResponseDone(opts: {
   logger: ReturnType<typeof createCallLogger>;
   logDir: string;
   callContext: { callSid: string | null; streamSid: string | null };
+  isClosed: () => boolean;
 }): Promise<void> {
   const response = opts.evt?.response;
   const outputs: any[] = Array.isArray(response?.output) ? response.output : [];
   if (!outputs.length) return;
 
   for (const item of outputs) {
+    if (opts.isClosed()) return;
     if (item?.type !== "function_call") continue;
     const name = item?.name;
     const callId = item?.call_id;
@@ -448,6 +454,7 @@ async function handleResponseDone(opts: {
         ...((typeof args === "object" && args !== null ? args : { args }) as any),
         call: opts.callContext,
       });
+      if (opts.isClosed()) return;
       opts.openai.send({
         type: "conversation.item.create",
         item: {

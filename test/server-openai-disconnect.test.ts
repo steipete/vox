@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { VoxConfig } from "../src/config.js";
 import type { CallLogger } from "../src/logger.js";
+import { connectOpenAIRealtime } from "../src/openai.js";
 import { handleTwilioSocket } from "../src/server.js";
 
 function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
@@ -90,10 +91,14 @@ function fakeSocket() {
   const listeners: Record<string, ((data: any) => void)[]> = {};
   const sent: string[] = [];
   let closeCount = 0;
+  let closeArgs: unknown[] = [];
   return {
     sent,
     get closeCount() {
       return closeCount;
+    },
+    get closeArgs() {
+      return closeArgs;
     },
     socket: {
       on: (event: string, cb: (data: any) => void) => {
@@ -102,8 +107,9 @@ function fakeSocket() {
       send: (str: string) => {
         sent.push(str);
       },
-      close: () => {
+      close: (...args: unknown[]) => {
         closeCount += 1;
+        closeArgs = args;
       },
     },
     emitMessage: (data: any) => {
@@ -140,6 +146,7 @@ test("mid-call OpenAI disconnect tears the call down instead of leaving dead air
   assert.ok(wsClosed, "the disconnect must be visible in the call log");
   assert.equal(wsClosed?.payload.code, 1006);
   assert.equal(sock.closeCount, 1, "the Twilio socket must be closed to end the call");
+  assert.deepEqual(sock.closeArgs, [1011, "Realtime connection closed"]);
   assert.equal(logger.state.closeCount, 1);
   assert.equal(oa.closeCount, 1);
 
@@ -178,4 +185,66 @@ test("OpenAI close after normal teardown is a no-op", async () => {
     logger.state.events.some((event) => event.payload?.type === "openai.ws.closed"),
     false,
   );
+});
+
+test("Twilio close during the OpenAI handshake aborts the pending connection", async () => {
+  const sock = fakeSocket();
+  const logger = strictLogger();
+  let connectSignal: AbortSignal | undefined;
+  const connect = (opts: Parameters<typeof connectOpenAIRealtime>[0]) =>
+    new Promise<Awaited<ReturnType<typeof connectOpenAIRealtime>>>((_resolve, reject) => {
+      connectSignal = opts.signal;
+      opts.signal?.addEventListener(
+        "abort",
+        () => {
+          const error = new Error("Realtime connection aborted");
+          error.name = "AbortError";
+          reject(error);
+        },
+        { once: true },
+      );
+    });
+
+  const handling = handleTwilioSocket({
+    socket: sock.socket,
+    req: {},
+    config: config(),
+    connect,
+    createLogger: logger.create,
+  });
+
+  sock.emitClose();
+  assert.equal(logger.state.closeCount, 1);
+  assert.ok(logger.state.events.some((event) => event.payload?.type === "twilio.ws.closed"));
+  await handling;
+
+  assert.equal(connectSignal?.aborted, true);
+  assert.equal(logger.state.closeCount, 1);
+  assert.equal(sock.closeCount, 0);
+});
+
+test("OpenAI handshake failure closes all call resources once", async () => {
+  const sock = fakeSocket();
+  const logger = strictLogger();
+  await handleTwilioSocket({
+    socket: sock.socket,
+    req: {},
+    config: config(),
+    connect: async () => {
+      throw new Error("upstream unavailable");
+    },
+    createLogger: logger.create,
+  });
+
+  const connectFailed = logger.state.events.find(
+    (event) => event.payload?.type === "openai.ws.connect_failed",
+  );
+  assert.equal(connectFailed?.payload.error, "upstream unavailable");
+  assert.equal(logger.state.closeCount, 1);
+  assert.equal(logger.state.lateEventCount, 0);
+  assert.equal(sock.closeCount, 1);
+  assert.deepEqual(sock.closeArgs, [1011, "Realtime connection failed"]);
+
+  sock.emitClose();
+  assert.equal(logger.state.closeCount, 1);
 });

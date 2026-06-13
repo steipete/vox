@@ -52,7 +52,7 @@ test("loadConfig parses OPENAI_REALTIME_URL and defaults it to null", async () =
       VOX_AGENT_CMD: undefined,
     },
     () => {
-      assert.equal(loadConfig().openaiRealtimeUrl, "ws://127.0.0.1:4242/realtime");
+      assert.equal(loadConfig().openaiRealtimeUrl?.toString(), "ws://127.0.0.1:4242/realtime");
     },
   );
   await withEnv(
@@ -64,6 +64,20 @@ test("loadConfig parses OPENAI_REALTIME_URL and defaults it to null", async () =
     },
     () => {
       assert.equal(loadConfig().openaiRealtimeUrl, null);
+    },
+  );
+});
+
+test("loadConfig rejects non-WebSocket OPENAI_REALTIME_URL values", async () => {
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      OPENAI_REALTIME_URL: "https://example.com/realtime",
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.throws(() => loadConfig(), /OPENAI_REALTIME_URL.*ws:\/\/ or wss:\/\//);
     },
   );
 });

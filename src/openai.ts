@@ -1,18 +1,25 @@
 import WebSocket from "ws";
 import { safeJsonParse } from "./json.js";
 
+export type RealtimeCloseInfo = {
+  code: number;
+  reason: string;
+};
+
 export type OpenAIRealtimeClient = {
   send: (evt: unknown) => void;
   close: () => void;
   onServerEvent: (handler: (evt: unknown) => void) => void;
-  onClose: (handler: (info: { code: number; reason: string }) => void) => void;
+  onClose: (handler: (info: RealtimeCloseInfo) => void) => void;
 };
 
 export function connectOpenAIRealtime(opts: {
   apiKey: string;
   model: string;
   /** Override the realtime endpoint (alternate gateways, local test servers). */
-  url?: string;
+  url?: string | URL;
+  /** Cancels connection establishment. Ignored after the socket opens. */
+  signal?: AbortSignal;
 }): Promise<OpenAIRealtimeClient> {
   const url =
     opts.url ?? `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(opts.model)}`;
@@ -26,19 +33,24 @@ export function connectOpenAIRealtime(opts: {
   const buffered: unknown[] = [];
 
   return new Promise((resolve, reject) => {
-    let closeHandler: ((info: { code: number; reason: string }) => void) | null = null;
-    let pendingClose: { code: number; reason: string } | null = null;
+    let opened = false;
+    let closeHandler: ((info: RealtimeCloseInfo) => void) | null = null;
+    let pendingClose: RealtimeCloseInfo | null = null;
     let lastError: Error | null = null;
+    const abortHandshake = () => {
+      const error = new Error("Realtime connection aborted");
+      error.name = "AbortError";
+      reject(error);
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+    };
 
     ws.once("open", () => {
-      // The handshake reject listener must not linger: a settled promise
-      // swallows the first mid-call error and leaves the next one unlistened,
-      // which would crash the whole process. Record errors instead; the
-      // "close" event that always follows carries the teardown.
-      ws.removeListener("error", reject);
-      ws.on("error", (err) => {
-        lastError = err;
-      });
+      opened = true;
+      opts.signal?.removeEventListener("abort", abortHandshake);
 
       resolve({
         send(evt: unknown) {
@@ -63,10 +75,22 @@ export function connectOpenAIRealtime(opts: {
         },
       });
     });
-    ws.once("error", reject);
+
+    // Keep one error listener for the socket's full lifetime. Before open it
+    // rejects the handshake; afterward the close event owns terminal state.
+    ws.on("error", (err) => {
+      lastError = err;
+      if (!opened) reject(err);
+    });
 
     ws.once("close", (code: number, reason: Buffer) => {
-      const info = { code, reason: lastError ? lastError.message : reason.toString("utf8") };
+      opts.signal?.removeEventListener("abort", abortHandshake);
+      if (!opened) {
+        reject(lastError ?? new Error(`Realtime connection closed during handshake (${code})`));
+        return;
+      }
+      const closeReason = reason.toString("utf8");
+      const info = { code, reason: closeReason || lastError?.message || "" };
       if (closeHandler) closeHandler(info);
       else pendingClose = info;
     });
@@ -82,5 +106,11 @@ export function connectOpenAIRealtime(opts: {
       }
       for (const handler of handlers) handler(parsed.value);
     });
+
+    if (opts.signal?.aborted) {
+      abortHandshake();
+    } else {
+      opts.signal?.addEventListener("abort", abortHandshake, { once: true });
+    }
   });
 }

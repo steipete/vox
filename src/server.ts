@@ -5,7 +5,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } from "./agent.js";
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
-import { connectOpenAIRealtime } from "./openai.js";
+import { connectOpenAIRealtime, type OpenAIRealtimeClient } from "./openai.js";
 import { base64ByteLength, createOutboundPlaybackTracker } from "./playback.js";
 import { twimlForStream, wsUrlFromPublicBase } from "./twiml.js";
 
@@ -71,8 +71,9 @@ export async function createVoxApp(config: VoxConfig): Promise<FastifyInstance> 
   app.get("/twilio", { websocket: true }, (connection, req) => {
     void handleTwilioSocket({ socket: connection, req, config }).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`vox: call bridge failed: ${msg}\n`);
       try {
-        connection.close(1011, msg);
+        connection.close(1011, "Call bridge failed");
       } catch {
         // ignore
       }
@@ -111,15 +112,65 @@ export async function handleTwilioSocket(opts: {
       ? createSubprocessAgentClient(config.agentCmd)
       : null;
 
-  const openai = await connect({
-    apiKey: config.openaiApiKey,
-    model: config.openaiRealtimeModel,
-    url: config.openaiRealtimeUrl ?? undefined,
-  });
-
   let sessionReady = false;
   const playback = createOutboundPlaybackTracker();
   let closed = false;
+  let openaiForCleanup: OpenAIRealtimeClient | null = null;
+  const openaiConnectController = new AbortController();
+
+  const cleanupCall = () => {
+    if (closed) return;
+    closed = true;
+    playback.clear();
+    try {
+      if (openaiForCleanup) openaiForCleanup.close();
+      else openaiConnectController.abort();
+    } catch {
+      // ignore
+    }
+    try {
+      agent?.close();
+    } catch {
+      // ignore
+    }
+    logger.close();
+  };
+
+  // Register before the provider handshake: Twilio can disconnect while
+  // connectOpenAIRealtime() is still pending.
+  socket.on("close", () => {
+    if (closed) return;
+    logger.event("vox", { type: "twilio.ws.closed" });
+    cleanupCall();
+  });
+
+  let openai: OpenAIRealtimeClient;
+  try {
+    openai = await connect({
+      apiKey: config.openaiApiKey,
+      model: config.openaiRealtimeModel,
+      url: config.openaiRealtimeUrl ?? undefined,
+      signal: openaiConnectController.signal,
+    });
+  } catch (err) {
+    if (closed) return;
+    const message = err instanceof Error ? err.message : String(err);
+    logger.event("vox", { type: "openai.ws.connect_failed", error: message });
+    process.stderr.write(`vox: realtime connection failed: ${message}\n`);
+    cleanupCall();
+    try {
+      socket.close(1011, "Realtime connection failed");
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  if (closed) {
+    openai.close();
+    return;
+  }
+  openaiForCleanup = openai;
 
   const audioQueue: string[] = [];
   const outboundAudioQueue: { itemId: string | null; payload: string }[] = [];
@@ -152,23 +203,6 @@ export async function handleTwilioSocket(opts: {
     playback.clear();
   };
 
-  const cleanupCall = () => {
-    if (closed) return;
-    closed = true;
-    playback.clear();
-    try {
-      openai.close();
-    } catch {
-      // ignore
-    }
-    try {
-      agent?.close();
-    } catch {
-      // ignore
-    }
-    logger.close();
-  };
-
   const syncInterruptedPlayback = () => {
     const interruption = playback.interruption();
     if (interruption.truncation) {
@@ -193,11 +227,12 @@ export async function handleTwilioSocket(opts: {
     logger.event("vox", { type: "openai.ws.closed", code, reason });
     cleanupCall();
     try {
-      socket.close();
+      socket.close(1011, "Realtime connection closed");
     } catch {
       // ignore
     }
   });
+  if (closed) return;
 
   openai.onServerEvent((rawEvt) => {
     if (closed) return;
@@ -324,12 +359,6 @@ export async function handleTwilioSocket(opts: {
   socket.on("message", (data: any) => {
     const text = decodeSocketData(data);
     handleTwilioMessage(text);
-  });
-
-  socket.on("close", () => {
-    if (closed) return;
-    logger.event("vox", { type: "twilio.ws.closed" });
-    cleanupCall();
   });
 
   // persist some call metadata for debugging

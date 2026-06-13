@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { type WebSocket, WebSocketServer } from "ws";
@@ -83,6 +84,50 @@ test("send after the connection dropped is a no-op, not a crash", async () => {
 
     client.send({ type: "input_audio_buffer.append", audio: "AA==" });
     await delay(50);
+  } finally {
+    wss.close();
+  }
+});
+
+test("aborting a pending handshake rejects and closes the transport", async () => {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(typeof address === "object" && address !== null);
+
+  const accepted = once(server, "connection");
+  const controller = new AbortController();
+  const connecting = connectOpenAIRealtime({
+    apiKey: "test",
+    model: "gpt-realtime",
+    url: `ws://127.0.0.1:${address.port}`,
+    signal: controller.signal,
+  });
+
+  const [socket] = await accepted;
+  controller.abort();
+  await assert.rejects(connecting, { name: "AbortError" });
+  await once(socket, "close");
+  server.close();
+});
+
+test("an already-aborted handshake signal rejects without an unhandled socket error", async () => {
+  const { wss, url } = await startWss();
+  const controller = new AbortController();
+  controller.abort();
+
+  try {
+    await assert.rejects(
+      connectOpenAIRealtime({
+        apiKey: "test",
+        model: "gpt-realtime",
+        url,
+        signal: controller.signal,
+      }),
+      { name: "AbortError" },
+    );
+    await delay(25);
   } finally {
     wss.close();
   }

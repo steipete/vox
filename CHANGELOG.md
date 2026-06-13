@@ -3,6 +3,7 @@
 ## 0.1.1 - Unreleased
 
 - End calls promptly when the OpenAI Realtime connection drops, clean up calls that end during provider connection setup, and surface terminal disconnects in `vox simulate`. Thanks @joeVenner.
+- Make packed installs launch the `vox` CLI directly.
 - Prevent late call-log and tool callbacks after teardown from crashing the Vox server. Thanks @joeVenner.
 - Refresh Node.js types, the native TypeScript preview, and the pnpm 10.x toolchain.
 

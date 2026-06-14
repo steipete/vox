@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Vox — Run your own AI phone agent">
+  <title>Vox — Run your own AI phone agent</title>
+  <defs>
+    <linearGradient id="og-grad" x1="0" y1="315" x2="1200" y2="315" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.5" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#60a5fa"/>
+    </linearGradient>
+    <radialGradient id="og-glow-teal" cx="260" cy="200" r="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5eead4" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#5eead4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="og-glow-violet" cx="940" cy="220" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="og-glow-blue" cx="600" cy="520" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#60a5fa" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#60a5fa" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="og-blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="60"/>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  <rect width="1200" height="630" fill="#05050a"/>
+
+  <!-- aurora gradients -->
+  <circle cx="260" cy="200" r="360" fill="url(#og-glow-teal)" filter="url(#og-blur)"/>
+  <circle cx="940" cy="220" r="380" fill="url(#og-glow-violet)" filter="url(#og-blur)"/>
+  <circle cx="600" cy="520" r="320" fill="url(#og-glow-blue)" filter="url(#og-blur)"/>
+
+  <!-- glass panel -->
+  <rect x="120" y="100" width="960" height="430" rx="28" fill="rgba(18,18,28,0.35)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+  <!-- Vox wordmark -->
+  <g transform="translate(600, 222) scale(2.8)" fill="none" stroke="url(#og-grad)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M-44 -18 -32 14 -20 -18" stroke-width="6.5"/>
+    <circle cx="0" cy="-2" r="11" stroke-width="6.5"/>
+    <path d="M16 -18 34 14" stroke-width="6.5"/>
+    <path d="M34 -18 16 14" stroke-width="6.5"/>
+  </g>
+
+  <!-- headline -->
+  <text x="600" y="340" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="68" font-weight="700" fill="#f5f5f7" letter-spacing="-0.02em">
+    Run your own AI phone agent.
+  </text>
+
+  <!-- subtitle -->
+  <text x="600" y="410" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="28" font-weight="400" fill="#9ca3af">
+    Self-hosted Twilio ↔ OpenAI Realtime bridge.
+  </text>
+</svg>

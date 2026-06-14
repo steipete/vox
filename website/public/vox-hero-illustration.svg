@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" fill="none" role="img" aria-label="Vox hero illustration">
+  <title>Vox hero illustration</title>
+  <defs>
+    <linearGradient id="hero-grad" x1="0" y1="240" x2="800" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.5" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#60a5fa"/>
+    </linearGradient>
+    <radialGradient id="glow-teal" cx="200" cy="240" r="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5eead4" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#5eead4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow-violet" cx="600" cy="240" r="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow-blue" cx="400" cy="400" r="160" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#60a5fa" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#60a5fa" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur-40" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+    <filter id="glow-soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="800" height="480" fill="#05050a"/>
+  <circle cx="200" cy="240" r="200" fill="url(#glow-teal)" filter="url(#blur-40)"/>
+  <circle cx="600" cy="240" r="220" fill="url(#glow-violet)" filter="url(#blur-40)"/>
+  <circle cx="400" cy="400" r="160" fill="url(#glow-blue)" filter="url(#blur-40)"/>
+
+  <!-- glass bubbles -->
+  <circle cx="220" cy="240" r="96" fill="rgba(18,18,28,0.55)" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
+  <circle cx="580" cy="240" r="110" fill="rgba(18,18,28,0.55)" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
+  <circle cx="80" cy="400" r="46" fill="rgba(18,18,28,0.35)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+  <circle cx="720" cy="80" r="40" fill="rgba(18,18,28,0.35)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+
+  <!-- abstract phone + audio waves -->
+  <rect x="188" y="178" width="64" height="124" rx="16" fill="rgba(255,255,255,0.04)" stroke="url(#hero-grad)" stroke-width="2"/>
+  <circle cx="220" cy="216" r="5" fill="#f5f5f7" opacity="0.85"/>
+  <path d="M204 250q16 14 32 0" stroke="#f5f5f7" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.75"/>
+  <path d="M270 228q20-16 40 0" stroke="url(#hero-grad)" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+  <path d="M270 252q20 16 40 0" stroke="url(#hero-grad)" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+
+  <!-- neural / AI node -->
+  <g filter="url(#glow-soft)">
+    <circle cx="580" cy="240" r="30" fill="url(#hero-grad)"/>
+    <circle cx="580" cy="240" r="14" fill="#05050a"/>
+    <circle cx="580" cy="240" r="5" fill="#f5f5f7"/>
+  </g>
+  <path d="M580 190 624 215v50l-44 25-44-25v-50z" stroke="rgba(255,255,255,0.18)" stroke-width="1.5" fill="none"/>
+  <circle cx="580" cy="190" r="5" fill="#5eead4"/>
+  <circle cx="624" cy="215" r="5" fill="#a78bfa"/>
+  <circle cx="624" cy="265" r="5" fill="#60a5fa"/>
+  <circle cx="580" cy="290" r="5" fill="#5eead4"/>
+  <circle cx="536" cy="265" r="5" fill="#a78bfa"/>
+  <circle cx="536" cy="215" r="5" fill="#60a5fa"/>
+
+  <!-- audio waveform bars -->
+  <rect x="360" y="224" width="9" height="32" rx="4.5" fill="url(#hero-grad)" opacity="0.9"/>
+  <rect x="376" y="212" width="9" height="56" rx="4.5" fill="url(#hero-grad)" opacity="0.95"/>
+  <rect x="392" y="232" width="9" height="16" rx="4.5" fill="url(#hero-grad)" opacity="0.85"/>
+  <rect x="408" y="204" width="9" height="72" rx="4.5" fill="url(#hero-grad)" opacity="1"/>
+  <rect x="424" y="228" width="9" height="24" rx="4.5" fill="url(#hero-grad)" opacity="0.9"/>
+  <rect x="440" y="216" width="9" height="48" rx="4.5" fill="url(#hero-grad)" opacity="0.95"/>
+  <rect x="456" y="232" width="9" height="16" rx="4.5" fill="url(#hero-grad)" opacity="0.85"/>
+
+  <!-- bridge connection -->
+  <path d="M320 240c70-70 140 70 210 0" stroke="url(#hero-grad)" stroke-width="3" stroke-linecap="round" fill="none" filter="url(#glow-soft)"/>
+  <circle cx="320" cy="240" r="4" fill="#5eead4" filter="url(#glow-soft)"/>
+  <circle cx="530" cy="240" r="4" fill="#60a5fa" filter="url(#glow-soft)"/>
+</svg>

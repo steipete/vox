@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import type { VoxConfig } from "../src/config.js";
+import { createCallLogger } from "../src/logger.js";
 import { handleTwilioSocket } from "../src/server.js";
 
 function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
@@ -109,4 +111,79 @@ test("a stalled agent query produces an error function_call_output instead of ha
   );
 
   sock.emitClose();
+});
+
+test("an HTTP agent failure sends a generic error to the model but logs the response body", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(500, { "content-type": "text/plain" });
+    res.end("internal: db password is secret123");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const oa = fakeOpenAI();
+  const sock = fakeSocket();
+  const events: { source: string; payload: unknown }[] = [];
+  const cfg = config({
+    agentUrl: new URL(`http://127.0.0.1:${address.port}/query`),
+    agentTimeoutMs: 1_000,
+  });
+
+  await handleTwilioSocket({
+    socket: sock.socket,
+    req: {},
+    config: cfg,
+    connect: oa.connect,
+    createLogger: (baseDir, id) => {
+      const real = createCallLogger(baseDir, id);
+      return {
+        ...real,
+        event: (source, payload) => {
+          events.push({ source, payload });
+          real.event(source, payload);
+        },
+      };
+    },
+  });
+
+  sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
+  oa.emit({ type: "session.created" });
+  oa.emit({ type: "session.updated" });
+
+  oa.emit({
+    type: "response.done",
+    response: {
+      output: [
+        {
+          type: "function_call",
+          name: "query_agent",
+          call_id: "call_1",
+          arguments: '{"question":"what is the order status?"}',
+        },
+      ],
+    },
+  });
+
+  await delay(200);
+
+  const itemCreate = oa.sent.find((event: any) => event?.type === "conversation.item.create");
+  assert.ok(itemCreate, "a function_call_output must be sent on agent HTTP failure");
+  const output = JSON.parse(itemCreate.item.output);
+  assert.equal(output.ok, false);
+  assert.equal(
+    output.error,
+    "Agent request failed",
+    "the model must not see the raw response body",
+  );
+
+  const toolError = events.find(
+    (e) => e.source === "vox" && (e.payload as any)?.type === "tool.error",
+  );
+  assert.ok(toolError, "the detailed failure must be logged server-side");
+  assert.match((toolError!.payload as any).error, /500/);
+  assert.match((toolError!.payload as any).error, /secret123/);
+
+  sock.emitClose();
+  server.close();
 });

@@ -8,6 +8,21 @@ export type AgentClient = {
   close: () => void;
 };
 
+/**
+ * Thrown by an AgentClient when a query fails in a way that may carry
+ * sensitive detail (e.g. an HTTP response body). `message` is safe to
+ * surface to the model/caller; `detail` is for server-side logs only.
+ */
+export class AgentError extends Error {
+  detail: string;
+
+  constructor(message: string, detail: string) {
+    super(message);
+    this.name = "AgentError";
+    this.detail = detail;
+  }
+}
+
 export function createHttpAgentClient(url: URL, timeoutMs: number): AgentClient {
   const closedController = new AbortController();
 
@@ -36,7 +51,7 @@ export function createHttpAgentClient(url: URL, timeoutMs: number): AgentClient 
         }
         if (!res.ok) {
           const text = await res.text().catch(() => "");
-          throw new Error(`Agent HTTP ${res.status}: ${text}`);
+          throw new AgentError("Agent request failed", `Agent HTTP ${res.status}: ${text}`);
         }
         const text = await res.text();
         const parsed = safeJsonParse<unknown>(text);

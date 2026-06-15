@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
-import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } from "./agent.js";
+import {
+  AgentError,
+  type AgentClient,
+  createHttpAgentClient,
+  createSubprocessAgentClient,
+} from "./agent.js";
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
 import { connectOpenAIRealtime, type OpenAIRealtimeClient } from "./openai.js";
@@ -504,7 +509,8 @@ async function handleResponseDone(opts: {
       } catch (err) {
         if (opts.isClosed()) return;
         const message = err instanceof Error ? err.message : String(err);
-        opts.logger.event("vox", { type: "tool.error", error: message });
+        const detail = err instanceof AgentError ? err.detail : message;
+        opts.logger.event("vox", { type: "tool.error", error: detail });
         opts.openai.send({
           type: "conversation.item.create",
           item: {

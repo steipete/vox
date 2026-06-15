@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import path from "node:path";
 import test from "node:test";
-import { createHttpAgentClient, createSubprocessAgentClient } from "../src/agent.js";
+import { AgentError, createHttpAgentClient, createSubprocessAgentClient } from "../src/agent.js";
 
 test("subprocess agent JSONL roundtrip", async () => {
   const cmd = `node ${path.join("examples", "echo-agent.js")}`;
@@ -65,6 +65,28 @@ test("http agent recovers after a timeout for the next query on the same client"
     const result = (await agent.query({ question: "second" })) as Record<string, unknown>;
     assert.equal(result.ok, true);
     assert.equal(result.answer, "hi");
+  } finally {
+    agent.close();
+    server.close();
+  }
+});
+
+test("http agent surfaces a generic message but keeps the response body in the error detail", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(500, { "content-type": "text/plain" });
+    res.end("internal: db password is secret123");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 1_000);
+  try {
+    const err = await agent.query({ question: "hello" }).catch((e) => e);
+    assert.ok(err instanceof AgentError);
+    assert.equal(err.message, "Agent request failed");
+    assert.match(err.detail, /500/);
+    assert.match(err.detail, /secret123/);
   } finally {
     agent.close();
     server.close();

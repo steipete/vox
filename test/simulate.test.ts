@@ -15,6 +15,7 @@ function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
     publicBaseUrl: new URL("https://vox.example.com"),
     agentUrl: null,
     agentCmd: null,
+    agentTimeoutMs: 10_000,
     logDir: "./logs",
     initialGreeting: "Hello from Vox.",
     twilioAccountSid: null,

@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
-import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } from "./agent.js";
+import {
+  AgentError,
+  type AgentClient,
+  createHttpAgentClient,
+  createSubprocessAgentClient,
+} from "./agent.js";
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
 import { connectOpenAIRealtime, type OpenAIRealtimeClient } from "./openai.js";
@@ -107,9 +112,9 @@ export async function handleTwilioSocket(opts: {
   });
 
   const agent: AgentClient | null = config.agentUrl
-    ? createHttpAgentClient(config.agentUrl)
+    ? createHttpAgentClient(config.agentUrl, config.agentTimeoutMs)
     : config.agentCmd
-      ? createSubprocessAgentClient(config.agentCmd)
+      ? createSubprocessAgentClient(config.agentCmd, config.agentTimeoutMs)
       : null;
 
   let sessionReady = false;
@@ -495,10 +500,29 @@ async function handleResponseDone(opts: {
         continue;
       }
 
-      const result = await opts.agent.query({
-        ...((typeof args === "object" && args !== null ? args : { args }) as any),
-        call: opts.callContext,
-      });
+      let result: unknown;
+      try {
+        result = await opts.agent.query({
+          ...((typeof args === "object" && args !== null ? args : { args }) as any),
+          call: opts.callContext,
+        });
+      } catch (err) {
+        if (opts.isClosed()) return;
+        const detail =
+          err instanceof AgentError ? err.detail : err instanceof Error ? err.message : String(err);
+        const message = err instanceof AgentError ? err.message : "Agent request failed";
+        opts.logger.event("vox", { type: "tool.error", error: detail });
+        opts.openai.send({
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: callId,
+            output: JSON.stringify({ ok: false, error: message }),
+          },
+        });
+        opts.openai.send({ type: "response.create" });
+        continue;
+      }
       if (opts.isClosed()) return;
       opts.openai.send({
         type: "conversation.item.create",

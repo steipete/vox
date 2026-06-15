@@ -2,6 +2,7 @@
 
 ## 0.1.1 - Unreleased
 
+- Add an opt-in timeout for HTTP and subprocess agent queries, recover voice responses after failures, and keep HTTP error details out of model-visible output. Thanks @joeVenner.
 - End calls promptly when the OpenAI Realtime connection drops, clean up calls that end during provider connection setup, and surface terminal disconnects in `vox simulate`. Thanks @joeVenner.
 - Make packed installs launch the `vox` CLI directly.
 - Prevent late call-log and tool callbacks after teardown from crashing the Vox server. Thanks @joeVenner.

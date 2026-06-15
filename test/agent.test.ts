@@ -37,6 +37,26 @@ test("http agent timeout can be disabled", async () => {
   }
 });
 
+test("http agent rejects queries after close without starting a request", async () => {
+  let requests = 0;
+  const server = createServer((_req, res) => {
+    requests += 1;
+    res.end("{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 0);
+  try {
+    agent.close();
+    await assert.rejects(agent.query({ question: "late" }), /Agent client closed/);
+    assert.equal(requests, 0);
+  } finally {
+    server.close();
+  }
+});
+
 test("subprocess agent query times out when the process never replies", async () => {
   const cmd = `node -e "process.stdin.resume()"`;
   const agent = createSubprocessAgentClient(cmd, 50);

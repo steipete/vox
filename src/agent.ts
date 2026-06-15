@@ -28,6 +28,9 @@ export function createHttpAgentClient(url: URL, timeoutMs: number): AgentClient 
 
   return {
     async query(args: unknown) {
+      if (closedController.signal.aborted) {
+        throw new Error("Agent client closed");
+      }
       const controller = new AbortController();
       let timedOut = false;
       const timeout =

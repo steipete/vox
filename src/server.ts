@@ -460,6 +460,7 @@ async function handleResponseDone(opts: {
   isClosed: () => boolean;
 }): Promise<void> {
   const response = opts.evt?.response;
+  if (response?.status === "cancelled") return;
   const outputs: any[] = Array.isArray(response?.output) ? response.output : [];
   if (!outputs.length) return;
 

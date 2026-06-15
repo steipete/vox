@@ -508,8 +508,9 @@ async function handleResponseDone(opts: {
         });
       } catch (err) {
         if (opts.isClosed()) return;
-        const message = err instanceof Error ? err.message : String(err);
-        const detail = err instanceof AgentError ? err.detail : message;
+        const detail =
+          err instanceof AgentError ? err.detail : err instanceof Error ? err.message : String(err);
+        const message = err instanceof AgentError ? err.message : "Agent request failed";
         opts.logger.event("vox", { type: "tool.error", error: detail });
         opts.openai.send({
           type: "conversation.item.create",

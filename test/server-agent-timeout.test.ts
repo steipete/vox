@@ -70,6 +70,7 @@ function fakeSocket() {
 test("a stalled agent query produces an error function_call_output instead of hanging the call", async () => {
   const oa = fakeOpenAI();
   const sock = fakeSocket();
+  const events: { source: string; payload: unknown }[] = [];
   // The agent process never replies; with a 50ms timeout the query must
   // reject and the model must still get a function_call_output.
   const cfg = config({ agentCmd: `node -e "process.stdin.resume()"`, agentTimeoutMs: 50 });
@@ -78,6 +79,16 @@ test("a stalled agent query produces an error function_call_output instead of ha
     req: {},
     config: cfg,
     connect: oa.connect,
+    createLogger: (baseDir, id) => {
+      const real = createCallLogger(baseDir, id);
+      return {
+        ...real,
+        event: (source, payload) => {
+          events.push({ source, payload });
+          real.event(source, payload);
+        },
+      };
+    },
   });
 
   sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
@@ -104,7 +115,11 @@ test("a stalled agent query produces an error function_call_output instead of ha
   assert.ok(itemCreate, "a function_call_output must be sent even when the agent times out");
   const output = JSON.parse(itemCreate.item.output);
   assert.equal(output.ok, false);
-  assert.match(output.error, /timed out after 50ms/);
+  assert.equal(output.error, "Agent request failed");
+  const toolError = events.find(
+    (event) => event.source === "vox" && (event.payload as any)?.type === "tool.error",
+  );
+  assert.match((toolError?.payload as any)?.error, /timed out after 50ms/);
   assert.ok(
     oa.sent.some((event: any) => event?.type === "response.create"),
     "the model must get a follow-up response so it can tell the caller something went wrong",

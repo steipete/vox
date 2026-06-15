@@ -111,6 +111,9 @@ Protocol:
 
 See `examples/echo-agent.js`.
 
+Set `VOX_AGENT_TIMEOUT_MS` to a positive millisecond value to bound HTTP or
+subprocess queries. It defaults to `0`, preserving unbounded agent calls.
+
 ## Logs
 
 Each call writes JSONL logs under `VOX_LOG_DIR`:

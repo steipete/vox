@@ -31,11 +31,13 @@ function envUrl(name: string): URL | null {
   return new URL(v);
 }
 
-function envPositiveInt(name: string, fallback: number): number {
+function envNonNegativeInt(name: string, fallback: number): number {
   const v = env(name);
   if (!v) return fallback;
   const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) throw new Error(`${name} must be a positive number`);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
   return n;
 }
 
@@ -65,7 +67,7 @@ export function loadConfig(): VoxConfig {
   const publicBaseUrl = envUrl("VOX_PUBLIC_BASE_URL");
   const agentUrl = envUrl("VOX_AGENT_URL");
   const agentCmd = env("VOX_AGENT_CMD");
-  const agentTimeoutMs = envPositiveInt("VOX_AGENT_TIMEOUT_MS", 10_000);
+  const agentTimeoutMs = envNonNegativeInt("VOX_AGENT_TIMEOUT_MS", 0);
   const logDir = env("VOX_LOG_DIR") ?? "./logs";
   const initialGreeting = env("VOX_INITIAL_GREETING");
 

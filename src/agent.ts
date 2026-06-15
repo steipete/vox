@@ -30,10 +30,13 @@ export function createHttpAgentClient(url: URL, timeoutMs: number): AgentClient 
     async query(args: unknown) {
       const controller = new AbortController();
       let timedOut = false;
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
+      const timeout =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              timedOut = true;
+              controller.abort();
+            }, timeoutMs)
+          : undefined;
       const onClosed = () => controller.abort();
       closedController.signal.addEventListener("abort", onClosed);
       try {
@@ -57,7 +60,7 @@ export function createHttpAgentClient(url: URL, timeoutMs: number): AgentClient 
         const parsed = safeJsonParse<unknown>(text);
         return parsed.ok ? parsed.value : text;
       } finally {
-        clearTimeout(timeout);
+        if (timeout) clearTimeout(timeout);
         closedController.signal.removeEventListener("abort", onClosed);
       }
     },
@@ -77,7 +80,7 @@ export function createSubprocessAgentClient(command: string, timeoutMs: number):
   const rl = createInterface({ input: child.stdout });
   const pending = new Map<
     string,
-    { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer: NodeJS.Timeout }
+    { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer?: NodeJS.Timeout }
   >();
 
   rl.on("line", (line) => {
@@ -88,7 +91,7 @@ export function createSubprocessAgentClient(command: string, timeoutMs: number):
     const p = pending.get(id);
     if (!p) return;
     pending.delete(id);
-    clearTimeout(p.timer);
+    if (p.timer) clearTimeout(p.timer);
     if (parsed.value.error) p.reject(parsed.value.error);
     else p.resolve(parsed.value.result ?? null);
   });
@@ -97,7 +100,7 @@ export function createSubprocessAgentClient(command: string, timeoutMs: number):
     rl.close();
     child.kill("SIGTERM");
     for (const [, p] of pending) {
-      clearTimeout(p.timer);
+      if (p.timer) clearTimeout(p.timer);
       p.reject(new Error("Agent process closed"));
     }
     pending.clear();
@@ -112,11 +115,14 @@ export function createSubprocessAgentClient(command: string, timeoutMs: number):
       if (!child.stdin.writable) throw new Error("Agent stdin not writable");
       child.stdin.write(payload);
       return await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error(`Agent query timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-        pending.set(id, { resolve, reject, timer });
+        const timer =
+          timeoutMs > 0
+            ? setTimeout(() => {
+                pending.delete(id);
+                reject(new Error(`Agent query timed out after ${timeoutMs}ms`));
+              }, timeoutMs)
+            : undefined;
+        pending.set(id, { resolve, reject, ...(timer ? { timer } : {}) });
       });
     },
     close,

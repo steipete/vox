@@ -6,7 +6,7 @@ import { AgentError, createHttpAgentClient, createSubprocessAgentClient } from "
 
 test("subprocess agent JSONL roundtrip", async () => {
   const cmd = `node ${path.join("examples", "echo-agent.js")}`;
-  const agent = createSubprocessAgentClient(cmd, 10_000);
+  const agent = createSubprocessAgentClient(cmd, 0);
   try {
     const res = await agent.query({ question: "hello" });
     const record = (res ?? {}) as Record<string, unknown>;
@@ -14,6 +14,26 @@ test("subprocess agent JSONL roundtrip", async () => {
     assert.match(String(record.answer ?? ""), /hello/);
   } finally {
     agent.close();
+  }
+});
+
+test("http agent timeout can be disabled", async () => {
+  const server = createServer((_req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    }, 75);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 0);
+  try {
+    await assert.doesNotReject(agent.query({ question: "hello" }));
+  } finally {
+    agent.close();
+    server.close();
   }
 });
 

@@ -20,6 +20,7 @@ function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
     publicBaseUrl: new URL("https://vox.example.com"),
     agentUrl: null,
     agentCmd: null,
+    agentTimeoutMs: 10_000,
     logDir: path.join(os.tmpdir(), `vox-test-${Date.now()}-${Math.random().toString(16).slice(2)}`),
     initialGreeting: null,
     twilioAccountSid: null,

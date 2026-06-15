@@ -10,6 +10,7 @@ export type VoxConfig = {
   publicBaseUrl: URL | null;
   agentUrl: URL | null;
   agentCmd: string | null;
+  agentTimeoutMs: number;
   logDir: string;
   initialGreeting: string | null;
 
@@ -28,6 +29,14 @@ function envUrl(name: string): URL | null {
   const v = env(name);
   if (!v) return null;
   return new URL(v);
+}
+
+function envPositiveInt(name: string, fallback: number): number {
+  const v = env(name);
+  if (!v) return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`${name} must be a positive number`);
+  return n;
 }
 
 function envWebSocketUrl(name: string): URL | null {
@@ -56,6 +65,7 @@ export function loadConfig(): VoxConfig {
   const publicBaseUrl = envUrl("VOX_PUBLIC_BASE_URL");
   const agentUrl = envUrl("VOX_AGENT_URL");
   const agentCmd = env("VOX_AGENT_CMD");
+  const agentTimeoutMs = envPositiveInt("VOX_AGENT_TIMEOUT_MS", 10_000);
   const logDir = env("VOX_LOG_DIR") ?? "./logs";
   const initialGreeting = env("VOX_INITIAL_GREETING");
 
@@ -77,6 +87,7 @@ export function loadConfig(): VoxConfig {
     publicBaseUrl,
     agentUrl,
     agentCmd,
+    agentTimeoutMs,
     logDir,
     initialGreeting,
     twilioAccountSid,

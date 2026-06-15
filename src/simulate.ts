@@ -82,9 +82,9 @@ export async function runSimulate(opts: {
   const logger = createCallLogger(opts.outDir, id);
 
   const agent: AgentClient | null = opts.config.agentUrl
-    ? createHttpAgentClient(opts.config.agentUrl)
+    ? createHttpAgentClient(opts.config.agentUrl, opts.config.agentTimeoutMs)
     : opts.config.agentCmd
-      ? createSubprocessAgentClient(opts.config.agentCmd)
+      ? createSubprocessAgentClient(opts.config.agentCmd, opts.config.agentTimeoutMs)
       : null;
 
   let sessionReady = false;

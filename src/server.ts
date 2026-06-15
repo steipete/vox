@@ -107,9 +107,9 @@ export async function handleTwilioSocket(opts: {
   });
 
   const agent: AgentClient | null = config.agentUrl
-    ? createHttpAgentClient(config.agentUrl)
+    ? createHttpAgentClient(config.agentUrl, config.agentTimeoutMs)
     : config.agentCmd
-      ? createSubprocessAgentClient(config.agentCmd)
+      ? createSubprocessAgentClient(config.agentCmd, config.agentTimeoutMs)
       : null;
 
   let sessionReady = false;
@@ -495,10 +495,27 @@ async function handleResponseDone(opts: {
         continue;
       }
 
-      const result = await opts.agent.query({
-        ...((typeof args === "object" && args !== null ? args : { args }) as any),
-        call: opts.callContext,
-      });
+      let result: unknown;
+      try {
+        result = await opts.agent.query({
+          ...((typeof args === "object" && args !== null ? args : { args }) as any),
+          call: opts.callContext,
+        });
+      } catch (err) {
+        if (opts.isClosed()) return;
+        const message = err instanceof Error ? err.message : String(err);
+        opts.logger.event("vox", { type: "tool.error", error: message });
+        opts.openai.send({
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: callId,
+            output: JSON.stringify({ ok: false, error: message }),
+          },
+        });
+        opts.openai.send({ type: "response.create" });
+        continue;
+      }
       if (opts.isClosed()) return;
       opts.openai.send({
         type: "conversation.item.create",

@@ -2,6 +2,7 @@ export type VoxConfig = {
   openaiApiKey: string;
   openaiRealtimeModel: string;
   openaiRealtimeVoice: string | null;
+  openaiRealtimeUrl: URL | null;
   openaiInputAudioType: "audio/pcmu";
   openaiOutputAudioType: "audio/pcmu";
   openaiTranscriptionModel: string | null;
@@ -29,12 +30,24 @@ function envUrl(name: string): URL | null {
   return new URL(v);
 }
 
+function envWebSocketUrl(name: string): URL | null {
+  const url = envUrl(name);
+  if (!url) return null;
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error(`${name} must use ws:// or wss://`);
+  }
+  return url;
+}
+
 export function loadConfig(): VoxConfig {
   const openaiApiKey = env("OPENAI_API_KEY");
   if (!openaiApiKey) throw new Error("Missing OPENAI_API_KEY");
 
   const openaiRealtimeModel = env("OPENAI_REALTIME_MODEL") ?? "gpt-realtime";
   const openaiRealtimeVoice = env("OPENAI_REALTIME_VOICE");
+  // Optional ws(s):// endpoint override: realtime gateways, self-hosted
+  // relays, or a local stand-in when exercising the bridge end-to-end.
+  const openaiRealtimeUrl = envWebSocketUrl("OPENAI_REALTIME_URL");
 
   const openaiInputAudioType = "audio/pcmu" as const;
   const openaiOutputAudioType = "audio/pcmu" as const;
@@ -57,6 +70,7 @@ export function loadConfig(): VoxConfig {
     openaiApiKey,
     openaiRealtimeModel,
     openaiRealtimeVoice,
+    openaiRealtimeUrl,
     openaiInputAudioType,
     openaiOutputAudioType,
     openaiTranscriptionModel,

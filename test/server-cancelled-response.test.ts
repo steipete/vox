@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import type { VoxConfig } from "../src/config.js";
+import { createCallLogger } from "../src/logger.js";
 import { handleTwilioSocket } from "../src/server.js";
 
 function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
@@ -72,18 +73,23 @@ test("a cancelled response does not execute its function calls", async () => {
   const oa = fakeOpenAI();
   const sock = fakeSocket();
   const cfg = config();
+  let logDir = "";
   await handleTwilioSocket({
     socket: sock.socket,
     req: {},
     config: cfg,
     connect: oa.connect,
+    createLogger: (baseDir, id) => {
+      const logger = createCallLogger(baseDir, id);
+      logDir = logger.dir;
+      return logger;
+    },
   });
 
   sock.emitMessage(JSON.stringify({ event: "start", start: { streamSid: "MZ1", callSid: "CA1" } }));
   oa.emit({ type: "session.created" });
   oa.emit({ type: "session.updated" });
 
-  const reportPath = path.join(cfg.logDir, "CA1", "report.json");
   oa.emit({
     type: "response.done",
     response: {
@@ -117,7 +123,7 @@ test("a cancelled response does not execute its function calls", async () => {
     "a cancelled response must not trigger a follow-up response",
   );
   assert.equal(
-    fs.existsSync(reportPath),
+    fs.existsSync(path.join(logDir, "report.json")),
     false,
     "a cancelled save_call_report must not write a report",
   );

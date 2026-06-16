@@ -2,6 +2,7 @@
 
 ## 0.1.1 - Unreleased
 
+- Add the Vox marketing website with responsive product guidance and verified static deployment configuration. Thanks @joeVenner.
 - Prevent late call-log and tool callbacks after teardown from crashing the Vox server. Thanks @joeVenner.
 - Refresh Node.js types, the native TypeScript preview, and the pnpm 10.x toolchain.
 

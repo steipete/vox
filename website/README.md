@@ -65,11 +65,13 @@ Connect the repo and set:
 
 ### Vercel
 
-Use the root `vercel.json`. Build settings:
+Set the Vercel project root directory to `website`. The included `vercel.json`
+then uses:
 
 - Framework preset: Vite
-- Build command: `cd website && pnpm run build`
-- Output directory: `website/dist`
+- Install command: `pnpm install --frozen-lockfile`
+- Build command: `pnpm run build`
+- Output directory: `dist`
 
 ### Any static host
 

@@ -116,7 +116,9 @@ export function Hero() {
             </MagneticButton>
             <MagneticButton>
               <a
-                href="#"
+                href="https://github.com/steipete/vox"
+                target="_blank"
+                rel="noreferrer noopener"
                 className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg glass text-[#f5f5f7] font-medium text-sm hover:bg-white/10 transition-colors"
               >
                 <GithubIcon className="w-4 h-4" />

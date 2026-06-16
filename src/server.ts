@@ -2,10 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
-import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } from "./agent.js";
+import {
+  AgentError,
+  type AgentClient,
+  createHttpAgentClient,
+  createSubprocessAgentClient,
+} from "./agent.js";
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
-import { connectOpenAIRealtime } from "./openai.js";
+import { connectOpenAIRealtime, type OpenAIRealtimeClient } from "./openai.js";
 import { base64ByteLength, createOutboundPlaybackTracker } from "./playback.js";
 import { twimlForStream, wsUrlFromPublicBase } from "./twiml.js";
 
@@ -71,8 +76,9 @@ export async function createVoxApp(config: VoxConfig): Promise<FastifyInstance> 
   app.get("/twilio", { websocket: true }, (connection, req) => {
     void handleTwilioSocket({ socket: connection, req, config }).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`vox: call bridge failed: ${msg}\n`);
       try {
-        connection.close(1011, msg);
+        connection.close(1011, "Call bridge failed");
       } catch {
         // ignore
       }
@@ -106,19 +112,70 @@ export async function handleTwilioSocket(opts: {
   });
 
   const agent: AgentClient | null = config.agentUrl
-    ? createHttpAgentClient(config.agentUrl)
+    ? createHttpAgentClient(config.agentUrl, config.agentTimeoutMs)
     : config.agentCmd
-      ? createSubprocessAgentClient(config.agentCmd)
+      ? createSubprocessAgentClient(config.agentCmd, config.agentTimeoutMs)
       : null;
-
-  const openai = await connect({
-    apiKey: config.openaiApiKey,
-    model: config.openaiRealtimeModel,
-  });
 
   let sessionReady = false;
   const playback = createOutboundPlaybackTracker();
   let closed = false;
+  let openaiForCleanup: OpenAIRealtimeClient | null = null;
+  const openaiConnectController = new AbortController();
+
+  const cleanupCall = () => {
+    if (closed) return;
+    closed = true;
+    playback.clear();
+    try {
+      if (openaiForCleanup) openaiForCleanup.close();
+      else openaiConnectController.abort();
+    } catch {
+      // ignore
+    }
+    try {
+      agent?.close();
+    } catch {
+      // ignore
+    }
+    logger.close();
+  };
+
+  // Register before the provider handshake: Twilio can disconnect while
+  // connectOpenAIRealtime() is still pending.
+  socket.on("close", () => {
+    if (closed) return;
+    logger.event("vox", { type: "twilio.ws.closed" });
+    cleanupCall();
+  });
+
+  let openai: OpenAIRealtimeClient;
+  try {
+    openai = await connect({
+      apiKey: config.openaiApiKey,
+      model: config.openaiRealtimeModel,
+      url: config.openaiRealtimeUrl ?? undefined,
+      signal: openaiConnectController.signal,
+    });
+  } catch (err) {
+    if (closed) return;
+    const message = err instanceof Error ? err.message : String(err);
+    logger.event("vox", { type: "openai.ws.connect_failed", error: message });
+    process.stderr.write(`vox: realtime connection failed: ${message}\n`);
+    cleanupCall();
+    try {
+      socket.close(1011, "Realtime connection failed");
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  if (closed) {
+    openai.close();
+    return;
+  }
+  openaiForCleanup = openai;
 
   const audioQueue: string[] = [];
   const outboundAudioQueue: { itemId: string | null; payload: string }[] = [];
@@ -151,23 +208,6 @@ export async function handleTwilioSocket(opts: {
     playback.clear();
   };
 
-  const cleanupCall = () => {
-    if (closed) return;
-    closed = true;
-    playback.clear();
-    try {
-      openai.close();
-    } catch {
-      // ignore
-    }
-    try {
-      agent?.close();
-    } catch {
-      // ignore
-    }
-    logger.close();
-  };
-
   const syncInterruptedPlayback = () => {
     const interruption = playback.interruption();
     if (interruption.truncation) {
@@ -183,6 +223,21 @@ export async function handleTwilioSocket(opts: {
     }
     playback.clear();
   };
+
+  // A mid-call OpenAI disconnect must end the Twilio call too; otherwise the
+  // caller sits in dead air on a bridge that can no longer answer, and the
+  // agent client and logger leak until Twilio gives up.
+  openai.onClose(({ code, reason }) => {
+    if (closed) return;
+    logger.event("vox", { type: "openai.ws.closed", code, reason });
+    cleanupCall();
+    try {
+      socket.close(1011, "Realtime connection closed");
+    } catch {
+      // ignore
+    }
+  });
+  if (closed) return;
 
   openai.onServerEvent((rawEvt) => {
     if (closed) return;
@@ -311,12 +366,6 @@ export async function handleTwilioSocket(opts: {
     handleTwilioMessage(text);
   });
 
-  socket.on("close", () => {
-    if (closed) return;
-    logger.event("vox", { type: "twilio.ws.closed" });
-    cleanupCall();
-  });
-
   // persist some call metadata for debugging
   fs.writeFileSync(
     path.join(logger.dir, "meta.json"),
@@ -416,6 +465,7 @@ async function handleResponseDone(opts: {
   isClosed: () => boolean;
 }): Promise<void> {
   const response = opts.evt?.response;
+  if (response?.status === "cancelled") return;
   const outputs: any[] = Array.isArray(response?.output) ? response.output : [];
   if (!outputs.length) return;
 
@@ -450,10 +500,29 @@ async function handleResponseDone(opts: {
         continue;
       }
 
-      const result = await opts.agent.query({
-        ...((typeof args === "object" && args !== null ? args : { args }) as any),
-        call: opts.callContext,
-      });
+      let result: unknown;
+      try {
+        result = await opts.agent.query({
+          ...((typeof args === "object" && args !== null ? args : { args }) as any),
+          call: opts.callContext,
+        });
+      } catch (err) {
+        if (opts.isClosed()) return;
+        const detail =
+          err instanceof AgentError ? err.detail : err instanceof Error ? err.message : String(err);
+        const message = err instanceof AgentError ? err.message : "Agent request failed";
+        opts.logger.event("vox", { type: "tool.error", error: detail });
+        opts.openai.send({
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: callId,
+            output: JSON.stringify({ ok: false, error: message }),
+          },
+        });
+        opts.openai.send({ type: "response.create" });
+        continue;
+      }
       if (opts.isClosed()) return;
       opts.openai.send({
         type: "conversation.item.create",

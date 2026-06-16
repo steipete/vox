@@ -43,6 +43,97 @@ test("loadConfig rejects VOX_AGENT_URL + VOX_AGENT_CMD together", async () => {
   );
 });
 
+test("loadConfig parses OPENAI_REALTIME_URL and defaults it to null", async () => {
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      OPENAI_REALTIME_URL: "ws://127.0.0.1:4242/realtime",
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.equal(loadConfig().openaiRealtimeUrl?.toString(), "ws://127.0.0.1:4242/realtime");
+    },
+  );
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      OPENAI_REALTIME_URL: undefined,
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.equal(loadConfig().openaiRealtimeUrl, null);
+    },
+  );
+});
+
+test("loadConfig rejects non-WebSocket OPENAI_REALTIME_URL values", async () => {
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      OPENAI_REALTIME_URL: "https://example.com/realtime",
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.throws(() => loadConfig(), /OPENAI_REALTIME_URL.*ws:\/\/ or wss:\/\//);
+    },
+  );
+});
+
+test("loadConfig disables the agent timeout by default and parses an override", async () => {
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      VOX_AGENT_TIMEOUT_MS: undefined,
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.equal(loadConfig().agentTimeoutMs, 0);
+    },
+  );
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      VOX_AGENT_TIMEOUT_MS: "5000",
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.equal(loadConfig().agentTimeoutMs, 5000);
+    },
+  );
+});
+
+test("loadConfig accepts zero and rejects invalid VOX_AGENT_TIMEOUT_MS values", async () => {
+  await withEnv(
+    {
+      OPENAI_API_KEY: "test",
+      VOX_AGENT_TIMEOUT_MS: "0",
+      VOX_AGENT_URL: undefined,
+      VOX_AGENT_CMD: undefined,
+    },
+    () => {
+      assert.equal(loadConfig().agentTimeoutMs, 0);
+    },
+  );
+  for (const value of ["-1", "1.5", "nope"]) {
+    await withEnv(
+      {
+        OPENAI_API_KEY: "test",
+        VOX_AGENT_TIMEOUT_MS: value,
+        VOX_AGENT_URL: undefined,
+        VOX_AGENT_CMD: undefined,
+      },
+      () => {
+        assert.throws(() => loadConfig(), /VOX_AGENT_TIMEOUT_MS/);
+      },
+    );
+  }
+});
+
 test("loadConfig parses VOX_PUBLIC_BASE_URL", async () => {
   await withEnv(
     {

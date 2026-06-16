@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import path from "node:path";
 import test from "node:test";
-import { createSubprocessAgentClient } from "../src/agent.js";
+import { AgentError, createHttpAgentClient, createSubprocessAgentClient } from "../src/agent.js";
 
 test("subprocess agent JSONL roundtrip", async () => {
   const cmd = `node ${path.join("examples", "echo-agent.js")}`;
-  const agent = createSubprocessAgentClient(cmd);
+  const agent = createSubprocessAgentClient(cmd, 0);
   try {
     const res = await agent.query({ question: "hello" });
     const record = (res ?? {}) as Record<string, unknown>;
@@ -13,5 +14,121 @@ test("subprocess agent JSONL roundtrip", async () => {
     assert.match(String(record.answer ?? ""), /hello/);
   } finally {
     agent.close();
+  }
+});
+
+test("http agent timeout can be disabled", async () => {
+  const server = createServer((_req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    }, 75);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 0);
+  try {
+    await assert.doesNotReject(agent.query({ question: "hello" }));
+  } finally {
+    agent.close();
+    server.close();
+  }
+});
+
+test("http agent rejects queries after close without starting a request", async () => {
+  let requests = 0;
+  const server = createServer((_req, res) => {
+    requests += 1;
+    res.end("{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 0);
+  try {
+    agent.close();
+    await assert.rejects(agent.query({ question: "late" }), /Agent client closed/);
+    assert.equal(requests, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test("subprocess agent query times out when the process never replies", async () => {
+  const cmd = `node -e "process.stdin.resume()"`;
+  const agent = createSubprocessAgentClient(cmd, 50);
+  try {
+    await assert.rejects(agent.query({ question: "hello" }), /timed out after 50ms/);
+  } finally {
+    agent.close();
+  }
+});
+
+test("http agent query times out when the server never responds", async () => {
+  const server = createServer((_req, _res) => {
+    // Never respond — the client must give up on its own.
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 50);
+  try {
+    await assert.rejects(agent.query({ question: "hello" }), /timed out after 50ms/);
+  } finally {
+    agent.close();
+    server.close();
+  }
+});
+
+test("http agent recovers after a timeout for the next query on the same client", async () => {
+  let requestCount = 0;
+  const server = createServer((_req, res) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      // First request hangs forever — the client must time out on its own.
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, answer: "hi" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 50);
+  try {
+    await assert.rejects(agent.query({ question: "first" }), /timed out after 50ms/);
+    const result = (await agent.query({ question: "second" })) as Record<string, unknown>;
+    assert.equal(result.ok, true);
+    assert.equal(result.answer, "hi");
+  } finally {
+    agent.close();
+    server.close();
+  }
+});
+
+test("http agent surfaces a generic message but keeps the response body in the error detail", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(500, { "content-type": "text/plain" });
+    res.end("internal: db password is secret123");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected AddressInfo");
+
+  const agent = createHttpAgentClient(new URL(`http://127.0.0.1:${address.port}/query`), 1_000);
+  try {
+    const err = await agent.query({ question: "hello" }).catch((e) => e);
+    assert.ok(err instanceof AgentError);
+    assert.equal(err.message, "Agent request failed");
+    assert.match(err.detail, /500/);
+    assert.match(err.detail, /secret123/);
+  } finally {
+    agent.close();
+    server.close();
   }
 });

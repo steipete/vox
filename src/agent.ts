@@ -8,32 +8,72 @@ export type AgentClient = {
   close: () => void;
 };
 
-export function createHttpAgentClient(url: URL): AgentClient {
-  const controller = new AbortController();
+/**
+ * Thrown by an AgentClient when a query fails in a way that may carry
+ * sensitive detail (e.g. an HTTP response body). `message` is safe to
+ * surface to the model/caller; `detail` is for server-side logs only.
+ */
+export class AgentError extends Error {
+  detail: string;
+
+  constructor(message: string, detail: string) {
+    super(message);
+    this.name = "AgentError";
+    this.detail = detail;
+  }
+}
+
+export function createHttpAgentClient(url: URL, timeoutMs: number): AgentClient {
+  const closedController = new AbortController();
 
   return {
     async query(args: unknown) {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(args),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Agent HTTP ${res.status}: ${text}`);
+      if (closedController.signal.aborted) {
+        throw new Error("Agent client closed");
       }
-      const text = await res.text();
-      const parsed = safeJsonParse<unknown>(text);
-      return parsed.ok ? parsed.value : text;
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeout =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              timedOut = true;
+              controller.abort();
+            }, timeoutMs)
+          : undefined;
+      const onClosed = () => controller.abort();
+      closedController.signal.addEventListener("abort", onClosed);
+      try {
+        let res: Response;
+        try {
+          res = await fetch(url, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(args),
+            signal: controller.signal,
+          });
+        } catch (err) {
+          if (timedOut) throw new Error(`Agent query timed out after ${timeoutMs}ms`);
+          throw err;
+        }
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new AgentError("Agent request failed", `Agent HTTP ${res.status}: ${text}`);
+        }
+        const text = await res.text();
+        const parsed = safeJsonParse<unknown>(text);
+        return parsed.ok ? parsed.value : text;
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        closedController.signal.removeEventListener("abort", onClosed);
+      }
     },
     close() {
-      controller.abort();
+      closedController.abort();
     },
   };
 }
 
-export function createSubprocessAgentClient(command: string): AgentClient {
+export function createSubprocessAgentClient(command: string, timeoutMs: number): AgentClient {
   const child = spawn(command, {
     shell: true,
     stdio: ["pipe", "pipe", "inherit"],
@@ -43,7 +83,7 @@ export function createSubprocessAgentClient(command: string): AgentClient {
   const rl = createInterface({ input: child.stdout });
   const pending = new Map<
     string,
-    { resolve: (v: unknown) => void; reject: (e: unknown) => void }
+    { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer?: NodeJS.Timeout }
   >();
 
   rl.on("line", (line) => {
@@ -54,6 +94,7 @@ export function createSubprocessAgentClient(command: string): AgentClient {
     const p = pending.get(id);
     if (!p) return;
     pending.delete(id);
+    if (p.timer) clearTimeout(p.timer);
     if (parsed.value.error) p.reject(parsed.value.error);
     else p.resolve(parsed.value.result ?? null);
   });
@@ -61,7 +102,10 @@ export function createSubprocessAgentClient(command: string): AgentClient {
   const close = () => {
     rl.close();
     child.kill("SIGTERM");
-    for (const [, p] of pending) p.reject(new Error("Agent process closed"));
+    for (const [, p] of pending) {
+      if (p.timer) clearTimeout(p.timer);
+      p.reject(new Error("Agent process closed"));
+    }
     pending.clear();
   };
 
@@ -74,7 +118,14 @@ export function createSubprocessAgentClient(command: string): AgentClient {
       if (!child.stdin.writable) throw new Error("Agent stdin not writable");
       child.stdin.write(payload);
       return await new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        const timer =
+          timeoutMs > 0
+            ? setTimeout(() => {
+                pending.delete(id);
+                reject(new Error(`Agent query timed out after ${timeoutMs}ms`));
+              }, timeoutMs)
+            : undefined;
+        pending.set(id, { resolve, reject, ...(timer ? { timer } : {}) });
       });
     },
     close,

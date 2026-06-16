@@ -111,6 +111,9 @@ Protocol:
 
 See `examples/echo-agent.js`.
 
+Set `VOX_AGENT_TIMEOUT_MS` to a positive millisecond value to bound HTTP or
+subprocess queries. It defaults to `0`, preserving unbounded agent calls.
+
 ## Logs
 
 Each call writes JSONL logs under `VOX_LOG_DIR`:
@@ -126,12 +129,15 @@ Environment variables (see `.env.example`):
 - `OPENAI_API_KEY` (required)
 - `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`)
 - `OPENAI_REALTIME_VOICE` (optional)
+- `OPENAI_REALTIME_URL` (optional trusted `ws://` or `wss://` endpoint override)
 - `OPENAI_TRANSCRIPTION_MODEL` (default: `gpt-4o-transcribe`)
 - `VOX_PUBLIC_BASE_URL` (required for `/twiml`)
 - `VOX_AGENT_URL` or `VOX_AGENT_CMD` (optional)
 - `VOX_LOG_DIR` (default: `./logs`)
 - `VOX_INITIAL_GREETING` (optional)
 - `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` (required for `vox dial`)
+
+`OPENAI_REALTIME_URL` receives the configured OpenAI API key. Only use an endpoint you trust.
 
 ## Development
 

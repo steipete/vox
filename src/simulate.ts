@@ -8,7 +8,7 @@ import { mulawToPcm16 } from "./audio/mulaw.js";
 import { wavFromPcm16le } from "./audio/wav.js";
 import type { VoxConfig } from "./config.js";
 import { createCallLogger } from "./logger.js";
-import { connectOpenAIRealtime } from "./openai.js";
+import { connectOpenAIRealtime, type OpenAIRealtimeClient } from "./openai.js";
 
 export function createSimulateAudioResponse(instructions?: string) {
   return {
@@ -82,20 +82,72 @@ export async function runSimulate(opts: {
   const logger = createCallLogger(opts.outDir, id);
 
   const agent: AgentClient | null = opts.config.agentUrl
-    ? createHttpAgentClient(opts.config.agentUrl)
+    ? createHttpAgentClient(opts.config.agentUrl, opts.config.agentTimeoutMs)
     : opts.config.agentCmd
-      ? createSubprocessAgentClient(opts.config.agentCmd)
+      ? createSubprocessAgentClient(opts.config.agentCmd, opts.config.agentTimeoutMs)
       : null;
-
-  const openai = await connectOpenAIRealtime({
-    apiKey: opts.config.openaiApiKey,
-    model: opts.config.openaiRealtimeModel,
-  });
 
   let sessionReady = false;
   let responseInFlight = false;
   let pendingAudioMulaw: Buffer[] = [];
   let lastAssistantText = "";
+  let closed = false;
+  let rl: readline.Interface | null = null;
+  let openaiForCleanup: OpenAIRealtimeClient | null = null;
+  const openaiConnectController = new AbortController();
+
+  const closeAll = () => {
+    if (closed) return;
+    closed = true;
+    try {
+      rl?.close();
+    } catch {
+      // ignore
+    }
+    try {
+      if (openaiForCleanup) openaiForCleanup.close();
+      else openaiConnectController.abort();
+    } catch {
+      // ignore
+    }
+    try {
+      agent?.close();
+    } catch {
+      // ignore
+    }
+    try {
+      logger.close();
+    } catch {
+      // ignore
+    }
+  };
+
+  process.on("SIGINT", () => {
+    closeAll();
+    process.exit(0);
+  });
+
+  let openai: OpenAIRealtimeClient;
+  try {
+    openai = await connectOpenAIRealtime({
+      apiKey: opts.config.openaiApiKey,
+      model: opts.config.openaiRealtimeModel,
+      url: opts.config.openaiRealtimeUrl ?? undefined,
+      signal: openaiConnectController.signal,
+    });
+  } catch (err) {
+    if (closed) return;
+    const message = err instanceof Error ? err.message : String(err);
+    logger.event("vox", { type: "openai.ws.connect_failed", error: message });
+    closeAll();
+    throw err;
+  }
+
+  if (closed) {
+    openai.close();
+    return;
+  }
+  openaiForCleanup = openai;
 
   const playWav = async (wavPath: string) => {
     if (!opts.playAudio) return;
@@ -161,6 +213,7 @@ export async function runSimulate(opts: {
               ...((typeof args === "object" && args !== null ? args : { args }) as any),
             })
           : { error: "No agent configured" };
+        if (closed) return;
 
         openai.send({
           type: "conversation.item.create",
@@ -202,6 +255,7 @@ export async function runSimulate(opts: {
   };
 
   openai.onServerEvent((rawEvt) => {
+    if (closed) return;
     const evt = rawEvt as any;
     logger.event("openai", evt);
     const type = typeof evt?.type === "string" ? evt.type : "";
@@ -264,44 +318,35 @@ export async function runSimulate(opts: {
       responseInFlight = false;
       void (async () => {
         await handleToolCalls(evt);
+        if (closed) return;
         await flushAudioToFile();
-      })();
+      })().catch((err) => {
+        if (closed) return;
+        process.stderr.write(
+          `vox simulate: response handling failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+        process.exitCode = 1;
+        closeAll();
+      });
       return;
     }
   });
 
-  const rl = readline.createInterface({
+  rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     terminal: true,
   });
-  const closeAll = () => {
-    try {
-      rl.close();
-    } catch {
-      // ignore
-    }
-    try {
-      openai.close();
-    } catch {
-      // ignore
-    }
-    try {
-      agent?.close();
-    } catch {
-      // ignore
-    }
-    try {
-      logger.close();
-    } catch {
-      // ignore
-    }
-  };
 
-  process.on("SIGINT", () => {
+  openai.onClose(({ code, reason }) => {
+    if (closed) return;
+    process.stderr.write(
+      `vox simulate: realtime connection closed (${code}${reason ? `: ${reason}` : ""})\n`,
+    );
+    process.exitCode = 1;
     closeAll();
-    process.exit(0);
   });
+  if (closed) return;
 
   process.stdout.write("vox simulate: type messages and press enter (Ctrl+C to quit)\n");
 

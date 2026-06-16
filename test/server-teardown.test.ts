@@ -13,12 +13,14 @@ function config(overrides: Partial<VoxConfig> = {}): VoxConfig {
     openaiApiKey: "test",
     openaiRealtimeModel: "gpt-realtime",
     openaiRealtimeVoice: "marin",
+    openaiRealtimeUrl: null,
     openaiInputAudioType: "audio/pcmu",
     openaiOutputAudioType: "audio/pcmu",
     openaiTranscriptionModel: "gpt-4o-transcribe",
     publicBaseUrl: new URL("https://vox.example.com"),
     agentUrl: null,
     agentCmd: null,
+    agentTimeoutMs: 10_000,
     logDir: path.join(os.tmpdir(), `vox-test-${Date.now()}-${Math.random().toString(16).slice(2)}`),
     initialGreeting: null,
     twilioAccountSid: null,
@@ -46,6 +48,7 @@ function fakeOpenAI() {
       onServerEvent: (h: (evt: unknown) => void) => {
         handler = h;
       },
+      onClose: () => {},
     }),
     emit: (evt: unknown) => handler?.(evt),
   };

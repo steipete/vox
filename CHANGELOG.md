@@ -2,6 +2,7 @@
 
 ## 0.1.1 - Unreleased
 
+- Add the Vox marketing website with responsive product guidance and verified static deployment configuration. Thanks @joeVenner.
 - Add an opt-in timeout for HTTP and subprocess agent queries, recover voice responses after failures, and keep HTTP error details out of model-visible output. Thanks @joeVenner.
 - End calls promptly when the OpenAI Realtime connection drops, clean up calls that end during provider connection setup, and surface terminal disconnects in `vox simulate`. Thanks @joeVenner.
 - Make packed installs launch the `vox` CLI directly.

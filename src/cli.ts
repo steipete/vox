@@ -39,7 +39,11 @@ program
       typeof opts.twimlUrl === "string" && opts.twimlUrl.length > 0
         ? opts.twimlUrl
         : config.publicBaseUrl
-          ? new URL("/twiml", config.publicBaseUrl).toString()
+          ? (() => {
+              const u = new URL(config.publicBaseUrl.toString());
+              u.pathname = u.pathname.replace(/\/$/, "") + "/twiml";
+              return u.toString();
+            })()
           : null;
 
     if (!twimlUrl) {

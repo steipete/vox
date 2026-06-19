@@ -17,6 +17,19 @@ test("wsUrlFromPublicBase maps https->wss and http->ws", () => {
   );
 });
 
+test("wsUrlFromPublicBase preserves a base path prefix", () => {
+  assert.equal(
+    wsUrlFromPublicBase(new URL("https://example.com/vox"), "/twilio"),
+    "wss://example.com/vox/twilio",
+    "path-prefixed base must not be collapsed",
+  );
+  assert.equal(
+    wsUrlFromPublicBase(new URL("https://example.com/vox/"), "/twilio"),
+    "wss://example.com/vox/twilio",
+    "trailing slash on base must not produce a double slash",
+  );
+});
+
 test("twimlForStream includes escaped stream url", () => {
   const xml = twimlForStream(`wss://example.com/twilio?x="y"&z=<1>`);
   assert.ok(

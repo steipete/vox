@@ -469,6 +469,8 @@ async function handleResponseDone(opts: {
   const outputs: any[] = Array.isArray(response?.output) ? response.output : [];
   if (!outputs.length) return;
 
+  let hasOutput = false;
+
   for (const item of outputs) {
     if (opts.isClosed()) return;
     if (item?.type !== "function_call") continue;
@@ -496,7 +498,7 @@ async function handleResponseDone(opts: {
             output: JSON.stringify({ error: "No agent configured" }),
           },
         });
-        opts.openai.send({ type: "response.create" });
+        hasOutput = true;
         continue;
       }
 
@@ -520,7 +522,7 @@ async function handleResponseDone(opts: {
             output: JSON.stringify({ ok: false, error: message }),
           },
         });
-        opts.openai.send({ type: "response.create" });
+        hasOutput = true;
         continue;
       }
       if (opts.isClosed()) return;
@@ -532,7 +534,7 @@ async function handleResponseDone(opts: {
           output: JSON.stringify({ ok: true, result }),
         },
       });
-      opts.openai.send({ type: "response.create" });
+      hasOutput = true;
       continue;
     }
 
@@ -547,7 +549,11 @@ async function handleResponseDone(opts: {
           output: JSON.stringify({ ok: true, path: reportPath }),
         },
       });
-      opts.openai.send({ type: "response.create" });
+      hasOutput = true;
     }
+  }
+
+  if (hasOutput && !opts.isClosed()) {
+    opts.openai.send({ type: "response.create" });
   }
 }

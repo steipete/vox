@@ -6,6 +6,7 @@
 - Add an opt-in timeout for HTTP and subprocess agent queries, recover voice responses after failures, and keep HTTP error details out of model-visible output. Thanks @joeVenner.
 - End calls promptly when the OpenAI Realtime connection drops, clean up calls that end during provider connection setup, and surface terminal disconnects in `vox simulate`. Thanks @joeVenner.
 - Make packed installs launch the `vox` CLI directly.
+- Send one Realtime follow-up after all tool outputs from a response, preventing multi-tool calls from colliding and silencing the assistant follow-up. Thanks @joeVenner.
 - Prevent late call-log and tool callbacks after teardown from crashing the Vox server. Thanks @joeVenner.
 - Skip tool execution, report writes, and follow-up responses for cancelled Realtime responses. Thanks @joeVenner.
 - Refresh Node.js types, the native TypeScript preview, and the pnpm 10.x toolchain.

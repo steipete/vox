@@ -17,7 +17,10 @@ export function twimlForStream(wsUrl: string): string {
 }
 
 export function wsUrlFromPublicBase(publicBaseUrl: URL, pathname: string): string {
-  const u = new URL(pathname, publicBaseUrl);
+  const u = new URL(publicBaseUrl.toString());
+  // Append pathname to whatever path the base already has, so a path-prefixed
+  // reverse proxy (e.g. https://host/vox + /twilio) is not collapsed to /twilio.
+  u.pathname = u.pathname.replace(/\/$/, "") + pathname;
   if (u.protocol === "https:") u.protocol = "wss:";
   else if (u.protocol === "http:") u.protocol = "ws:";
   return u.toString();

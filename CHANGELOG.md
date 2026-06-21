@@ -4,6 +4,7 @@
 
 - Add the Vox marketing website with responsive product guidance and verified static deployment configuration. Thanks @joeVenner.
 - Add an opt-in timeout for HTTP and subprocess agent queries, recover voice responses after failures, and keep HTTP error details out of model-visible output. Thanks @joeVenner.
+- Add regression coverage for repeated barge-ins keeping audio truncation within item bounds. Thanks @joeVenner.
 - End calls promptly when the OpenAI Realtime connection drops, clean up calls that end during provider connection setup, and surface terminal disconnects in `vox simulate`. Thanks @joeVenner.
 - Make packed installs launch the `vox` CLI directly.
 - Preserve path prefixes in `VOX_PUBLIC_BASE_URL` when building TwiML and WebSocket endpoints. Thanks @joeVenner.

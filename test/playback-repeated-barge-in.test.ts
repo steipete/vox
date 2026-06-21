@@ -12,7 +12,7 @@ test("audio_end_ms never exceeds item audio length after repeated barge-ins", ()
   playback.onInboundMedia(0);
   const xMark1 = playback.onOutboundAudio("itemX", msAudio(300));
   const xMark2 = playback.onOutboundAudio("itemX", msAudio(300));
-  playback.onOutboundAudio("itemX", msAudio(300));
+  const xMark3 = playback.onOutboundAudio("itemX", msAudio(300));
 
   // Ack first two marks: 600ms of X have been fully played
   playback.onInboundMedia(300);
@@ -26,15 +26,11 @@ test("audio_end_ms never exceeds item audio length after repeated barge-ins", ()
   assert.ok(interruption1.truncation, "first barge-in must produce a truncation");
   assert.equal(interruption1.truncation!.itemId, "itemX");
   // 600ms acked + 150ms into chunk 3 = 750ms, capped at 300ms max within chunk
-  assert.ok(
-    interruption1.truncation!.audioEndMs <= 900,
-    `first truncation audio_end_ms (${interruption1.truncation!.audioEndMs}) must not exceed itemX's 900ms total`,
-  );
+  assert.equal(interruption1.truncation.audioEndMs, 750);
   playback.clear(); // simulate syncInterruptedPlayback + clearPlayback
 
   // Late Twilio mark for itemX chunk 3 arrives after the clear — must be ignored
-  const staleXMark3Name = `vox-3`;
-  playback.onMark(staleXMark3Name); // should be a no-op since pending is empty
+  playback.onMark(xMark3.name); // should be a no-op since pending is empty
 
   // Verify no state corruption: truncation() must return null since pending is empty
   assert.equal(playback.truncation(), null, "after clear, no truncation until new audio arrives");
@@ -54,10 +50,7 @@ test("audio_end_ms never exceeds item audio length after repeated barge-ins", ()
   const interruption2 = playback.interruption();
   assert.ok(interruption2.truncation, "second barge-in must produce a truncation");
   assert.equal(interruption2.truncation!.itemId, "itemY");
-  assert.ok(
-    interruption2.truncation!.audioEndMs <= 400,
-    `second truncation audio_end_ms (${interruption2.truncation!.audioEndMs}) must not exceed itemY's 400ms total`,
-  );
+  assert.equal(interruption2.truncation.audioEndMs, 400);
 });
 
 test("playedMsByItem is fully reset on clear so repeated barge-ins start fresh", () => {
@@ -76,11 +69,6 @@ test("playedMsByItem is fully reset on clear so repeated barge-ins start fresh",
   playback.onOutboundAudio("itemX", msAudio(500));
   playback.onInboundMedia(1700);
 
-  const t = playback.truncation();
-  assert.ok(t, "should have truncation for retried itemX");
   // playedMsByItem was cleared; 500ms total from the new chunk
-  assert.ok(
-    t!.audioEndMs <= 500,
-    `retried item's audio_end_ms (${t!.audioEndMs}) must not include pre-clear play history`,
-  );
+  assert.deepEqual(playback.truncation(), { itemId: "itemX", audioEndMs: 500 });
 });

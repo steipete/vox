@@ -34,5 +34,10 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.34.3"
+  "packageManager": "pnpm@10.34.3",
+  "pnpm": {
+    "overrides": {
+      "esbuild": "0.28.1"
+    }
+  }
 }

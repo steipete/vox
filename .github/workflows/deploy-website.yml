@@ -1,0 +1,61 @@
+name: Deploy Website
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "website/**"
+      - ".github/workflows/deploy-website.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+      - id: pages
+        uses: actions/configure-pages@v6
+      - run: pnpm install --frozen-lockfile
+        working-directory: website
+      - run: pnpm run typecheck
+        working-directory: website
+      - run: pnpm run build
+        working-directory: website
+        env:
+          VITE_BASE: ${{ format('{0}/', steps.pages.outputs.base_path) }}
+      - run: pnpm run verify:deploy
+        working-directory: website
+        env:
+          VITE_BASE: ${{ format('{0}/', steps.pages.outputs.base_path) }}
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: website/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -25,7 +25,7 @@ export function Preloader() {
 
       <div className="relative flex flex-col items-center">
         <motion.img
-          src="/vox-logo.svg"
+          src={`${import.meta.env.BASE_URL}vox-logo.svg`}
           alt=""
           className="w-16 h-16 mb-6 drop-shadow-[0_0_30px_rgba(94,234,212,0.25)]"
           initial={{ opacity: 0, scale: 0.8 }}

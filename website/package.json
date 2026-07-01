@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "verify:deploy": "node scripts/verify-deploy.mjs",
     "generate-og": "node scripts/generate-og-png.mjs"
   },
   "dependencies": {

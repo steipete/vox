@@ -21,7 +21,7 @@
     "@fastify/websocket": "^11.2.0",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
-    "fastify": "^5.8.5",
+    "fastify": "^5.9.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
@@ -29,15 +29,10 @@
     "@types/ws": "^8.18.1",
     "@typescript/native-preview": "7.0.0-dev.20260611.2",
     "oxfmt": "^0.54.0",
-    "oxlint": "^1.69.0",
+    "oxlint": "^1.72.0",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.34.3",
-  "pnpm": {
-    "overrides": {
-      "esbuild": "0.28.1"
-    }
-  }
+  "packageManager": "pnpm@10.34.3"
 }

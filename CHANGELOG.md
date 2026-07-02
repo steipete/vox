@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 - Unreleased
+## 0.2.0 - 2026-07-02
 
 - Add and publish the Vox marketing website at https://voxcli.sh with responsive product guidance and automated GitHub Pages deployment. Thanks @joeVenner.
 - Add an opt-in timeout for HTTP and subprocess agent queries, recover voice responses after failures, and keep HTTP error details out of model-visible output. Thanks @joeVenner.

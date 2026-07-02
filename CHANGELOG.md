@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.2.1 - Unreleased
+
 ## 0.2.0 - 2026-07-02
 
 - Add and publish the Vox marketing website at https://voxcli.sh with responsive product guidance and automated GitHub Pages deployment. Thanks @joeVenner.

@@ -51,28 +51,18 @@ This uses `sharp` to render the SVG to a 1200×630 PNG.
 
 ## Deploy
 
-The site is a static Vite build. Output goes to `dist/`.
+The canonical site is [voxcli.sh](https://voxcli.sh), deployed through GitHub
+Pages by `.github/workflows/deploy-website.yml` whenever `website/` changes on
+`main`. Repository Pages settings use **GitHub Actions** as the source and
+`voxcli.sh` as the custom domain.
 
-### Netlify
+The workflow asks GitHub Pages for the active base path before building, so the
+same artifact layout works for the custom domain (`/`) and the repository Pages
+fallback (`/vox/`). `public/CNAME` records the canonical domain in the artifact.
 
-Connect the repo and set:
+To reproduce the project-path build locally:
 
-- Base directory: `website`
-- Build command: `pnpm run build`
-- Publish directory: `dist`
-
-`netlify.toml` is included.
-
-### Vercel
-
-Set the Vercel project root directory to `website`. The included `vercel.json`
-then uses:
-
-- Framework preset: Vite
-- Install command: `pnpm install --frozen-lockfile`
-- Build command: `pnpm run build`
-- Output directory: `dist`
-
-### Any static host
-
-Run `pnpm run build` and upload `website/dist/`.
+```bash
+VITE_BASE=/vox/ pnpm run build
+VITE_BASE=/vox/ pnpm run verify:deploy
+```

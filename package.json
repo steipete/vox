@@ -10,7 +10,7 @@
     "dev": "tsx src/cli.ts",
     "build": "tsup src/cli.ts --format esm --target node22 --sourcemap --clean",
     "start": "node dist/cli.js",
-    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
@@ -18,21 +18,20 @@
     "lint:fix": "pnpm run format && oxlint --fix src test"
   },
   "dependencies": {
-    "@fastify/websocket": "^11.2.0",
+    "@fastify/websocket": "^11.3.0",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
-    "fastify": "^5.9.0",
+    "fastify": "^5.10.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.1.1",
     "@types/ws": "^8.18.1",
-    "@typescript/native-preview": "7.0.0-dev.20260611.2",
-    "oxfmt": "^0.54.0",
-    "oxlint": "^1.72.0",
+    "oxfmt": "^0.58.0",
+    "oxlint": "^1.73.0",
     "tsup": "^8.5.1",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
   },
   "packageManager": "pnpm@10.34.3"
 }

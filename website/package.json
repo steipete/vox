@@ -1,6 +1,6 @@
 {
   "name": "vox-website",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Marketing landing page for Vox — a self-hosted Twilio ↔ OpenAI Realtime voice bridge.",
   "type": "module",

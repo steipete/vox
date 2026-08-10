@@ -9,7 +9,7 @@ import { dialTwilioCall } from "./twilio.js";
 
 const program = new Command();
 
-program.name("vox").description("Phone calling bridge: Twilio ↔ OpenAI Realtime").version("0.1.0");
+program.name("vox").description("Phone calling bridge: Twilio ↔ OpenAI Realtime").version("0.2.1");
 
 program
   .command("serve")

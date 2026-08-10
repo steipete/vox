@@ -1,8 +1,13 @@
 # Changelog
 
-## 0.2.1 - Unreleased
+## 0.2.1 - 2026-08-10
 
-- Refresh runtime and build dependencies, including patched Fastify routing dependencies for three high-severity advisories.
+**Highlight:** patched Fastify routing dependencies — three high-severity
+advisories (`fast-uri` host confusion and `find-my-way`) are cleared from the
+live request path.
+
+- Refresh runtime and build dependencies: Fastify 5.11.3 with patched `fast-uri` 3.1.5/4.1.2 and `find-my-way` 9.7.0, clearing three high-severity advisories in URL parsing and routing; plus ws, React 19.2.8, Vite 8.2.1, Tailwind, and the oxc toolchain.
+- Hold `commander` 15 and pnpm 11 (both require a newer Node floor than vox's Node ≥22 contract) and `framer-motion` 13 (animation major pending rendered-behavior validation).
 
 ## 0.2.0 - 2026-07-02
 

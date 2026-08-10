@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.2.2 - Unreleased
+
 ## 0.2.1 - 2026-08-10
 
 **Highlight:** patched Fastify routing dependencies — three high-severity

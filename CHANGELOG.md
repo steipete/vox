@@ -2,6 +2,8 @@
 
 ## 0.2.1 - Unreleased
 
+- Refresh runtime and build dependencies, including patched Fastify routing dependencies for three high-severity advisories.
+
 ## 0.2.0 - 2026-07-02
 
 - Add and publish the Vox marketing website at https://voxcli.sh with responsive product guidance and automated GitHub Pages deployment. Thanks @joeVenner.

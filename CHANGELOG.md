@@ -2,6 +2,8 @@
 
 ## 0.2.2 - Unreleased
 
+- Refresh eligible JavaScript dependencies and upgrade the GitHub Actions Node setup to v7.
+
 ## 0.2.1 - 2026-08-10
 
 **Highlight:** patched Fastify routing dependencies — three high-severity

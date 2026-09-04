@@ -89,28 +89,36 @@ test("send after the connection dropped is a no-op, not a crash", async () => {
   }
 });
 
-test("aborting a pending handshake rejects and closes the transport", async () => {
-  const server = createServer();
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert.ok(typeof address === "object" && address !== null);
+test(
+  "aborting a pending handshake rejects and closes the transport",
+  { timeout: 5000 },
+  async (t) => {
+    const server = createServer();
+    t.after(() => server.close());
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(typeof address === "object" && address !== null);
 
-  const accepted = once(server, "connection");
-  const controller = new AbortController();
-  const connecting = connectOpenAIRealtime({
-    apiKey: "test",
-    model: "gpt-realtime",
-    url: `ws://127.0.0.1:${address.port}`,
-    signal: controller.signal,
-  });
+    const accepted = once(server, "connection");
+    const controller = new AbortController();
+    const connecting = connectOpenAIRealtime({
+      apiKey: "test",
+      model: "gpt-realtime",
+      url: `ws://127.0.0.1:${address.port}`,
+      signal: controller.signal,
+    });
 
-  const [socket] = await accepted;
-  controller.abort();
-  await assert.rejects(connecting, { name: "AbortError" });
-  await once(socket, "close");
-  server.close();
-});
+    const [socket] = await accepted;
+    t.after(() => socket.destroy());
+    const closed = once(socket, "close");
+    // Drain the handshake bytes so the peer's FIN can close this raw TCP socket.
+    socket.resume();
+    controller.abort();
+    await assert.rejects(connecting, { name: "AbortError" });
+    await closed;
+  },
+);
 
 test("an already-aborted handshake signal rejects without an unhandled socket error", async () => {
   const { wss, url } = await startWss();

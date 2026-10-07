@@ -2,6 +2,7 @@
 
 ## 0.2.2 - Unreleased
 
+- Patch Fastify, both fast-uri dependency lines, and Tinypool security advisories; refresh compatible CLI and website dependencies and pnpm 10, with regression coverage for URI host normalization.
 - Refresh Fastify, Node.js types, oxfmt/oxlint, Framer Motion, Lucide, React DOM types, and PostCSS to their latest compatible releases.
 - Update Fastify, Node.js types, oxfmt/oxlint, and website dependencies, including Framer Motion 13; refresh both pnpm lockfiles while retaining the Node.js 22-compatible CLI and package manager.
 - Refresh eligible JavaScript dependencies and upgrade the GitHub Actions Node setup to v7.

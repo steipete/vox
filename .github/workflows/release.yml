@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer matching package.json and a dated changelog section
+        required: true
+        type: string
+      dry_run:
+        description: Validate, build, and verify without publishing
+        default: true
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    permissions:
+      actions: read
+      checks: read
+      contents: write
+      statuses: read
+    uses: openclaw/release-workflows/.github/workflows/release-source.yml@v1
+    with:
+      version: ${{ inputs.version || github.ref_name }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      require-signed-tag: true
+      strict-checks: true
+      ci-check-events: '["push"]'
+      source-archives: true
+      test-command: |
+        corepack enable
+        corepack prepare pnpm@10.34.6 --activate
+        pnpm install --frozen-lockfile
+        pnpm lint
+        pnpm typecheck
+        pnpm test
+        pnpm build
+        node dist/cli.js --help

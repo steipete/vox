@@ -72,6 +72,78 @@ export function createSimulateSessionConfig(config: VoxConfig) {
   };
 }
 
+export async function applySimulateToolCalls(input: {
+  outputs: unknown[];
+  agent: AgentClient | null;
+  isClosed: () => boolean;
+  send: (event: unknown) => void;
+  logDir: string;
+}): Promise<boolean> {
+  let hasToolOutput = false;
+  for (const item of input.outputs) {
+    if (!item || typeof item !== "object") continue;
+    const call = item as { type?: unknown; name?: unknown; call_id?: unknown; arguments?: unknown };
+    if (call.type !== "function_call") continue;
+    const name = call.name;
+    const callId = call.call_id;
+    const argsText = call.arguments;
+    if (typeof name !== "string" || typeof callId !== "string") continue;
+
+    let args: unknown = argsText;
+    if (typeof argsText === "string") {
+      try {
+        args = JSON.parse(argsText) as unknown;
+      } catch {
+        args = { raw: argsText };
+      }
+    }
+
+    if (name === "query_agent") {
+      const result = input.agent
+        ? await input.agent.query({
+            ...((typeof args === "object" && args !== null ? args : { args }) as Record<
+              string,
+              unknown
+            >),
+          })
+        : { error: "No agent configured" };
+      if (input.isClosed()) return false;
+      input.send({
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify({ ok: true, result }),
+        },
+      });
+      hasToolOutput = true;
+      continue;
+    }
+
+    if (name === "save_call_report") {
+      const reportPath = path.join(input.logDir, "report.json");
+      fs.writeFileSync(reportPath, JSON.stringify({ t: new Date().toISOString(), args }, null, 2));
+      input.send({
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify({ ok: true, path: reportPath }),
+        },
+      });
+      hasToolOutput = true;
+    }
+  }
+  if (hasToolOutput && !input.isClosed()) {
+    input.send({
+      type: "response.create",
+      response: createSimulateAudioResponse(),
+    });
+    return true;
+  }
+  return false;
+}
+
 export async function runSimulate(opts: {
   config: VoxConfig;
   outDir: string;
@@ -190,68 +262,15 @@ export async function runSimulate(opts: {
 
   const handleToolCalls = async (evt: any) => {
     const response = evt?.response;
-    const outputs: any[] = Array.isArray(response?.output) ? response.output : [];
-    for (const item of outputs) {
-      if (item?.type !== "function_call") continue;
-      const name = item?.name;
-      const callId = item?.call_id;
-      const argsText = item?.arguments;
-      if (typeof name !== "string" || typeof callId !== "string") continue;
-
-      let args: unknown = argsText;
-      if (typeof argsText === "string") {
-        try {
-          args = JSON.parse(argsText) as unknown;
-        } catch {
-          args = { raw: argsText };
-        }
-      }
-
-      if (name === "query_agent") {
-        const result = agent
-          ? await agent.query({
-              ...((typeof args === "object" && args !== null ? args : { args }) as any),
-            })
-          : { error: "No agent configured" };
-        if (closed) return;
-
-        openai.send({
-          type: "conversation.item.create",
-          item: {
-            type: "function_call_output",
-            call_id: callId,
-            output: JSON.stringify({ ok: true, result }),
-          },
-        });
-        openai.send({
-          type: "response.create",
-          response: createSimulateAudioResponse(),
-        });
-        responseInFlight = true;
-        continue;
-      }
-
-      if (name === "save_call_report") {
-        const reportPath = path.join(logger.dir, "report.json");
-        fs.writeFileSync(
-          reportPath,
-          JSON.stringify({ t: new Date().toISOString(), args }, null, 2),
-        );
-        openai.send({
-          type: "conversation.item.create",
-          item: {
-            type: "function_call_output",
-            call_id: callId,
-            output: JSON.stringify({ ok: true, path: reportPath }),
-          },
-        });
-        openai.send({
-          type: "response.create",
-          response: createSimulateAudioResponse(),
-        });
-        responseInFlight = true;
-      }
-    }
+    const outputs: unknown[] = Array.isArray(response?.output) ? response.output : [];
+    const started = await applySimulateToolCalls({
+      outputs,
+      agent,
+      isClosed: () => closed,
+      send: (event) => openai.send(event as never),
+      logDir: logger.dir,
+    });
+    if (started) responseInFlight = true;
   };
 
   openai.onServerEvent((rawEvt) => {

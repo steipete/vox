@@ -2,7 +2,7 @@
 
 ## 0.2.2 - Unreleased
 
-- Simulation starts one follow-up response after a realtime reply that contains several tool calls, instead of one follow-up per call.
+- Simulation: submit all tool results before one follow-up response and keep terminal input blocked while tools are pending. Thanks @SebTardif (#31).
 
 - Refresh compatible Fastify, CLI tooling, React, Vite, and website dependencies while retaining Node.js 22 support.
 - Patch Fastify, both fast-uri dependency lines, and Tinypool security advisories; refresh compatible CLI and website dependencies and pnpm 10, with regression coverage for URI host normalization.

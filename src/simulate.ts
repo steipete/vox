@@ -191,6 +191,7 @@ export async function runSimulate(opts: {
   const handleToolCalls = async (evt: any) => {
     const response = evt?.response;
     const outputs: any[] = Array.isArray(response?.output) ? response.output : [];
+    let hasToolOutput = false;
     for (const item of outputs) {
       if (item?.type !== "function_call") continue;
       const name = item?.name;
@@ -223,11 +224,7 @@ export async function runSimulate(opts: {
             output: JSON.stringify({ ok: true, result }),
           },
         });
-        openai.send({
-          type: "response.create",
-          response: createSimulateAudioResponse(),
-        });
-        responseInFlight = true;
+        hasToolOutput = true;
         continue;
       }
 
@@ -245,13 +242,13 @@ export async function runSimulate(opts: {
             output: JSON.stringify({ ok: true, path: reportPath }),
           },
         });
-        openai.send({
-          type: "response.create",
-          response: createSimulateAudioResponse(),
-        });
-        responseInFlight = true;
+        hasToolOutput = true;
       }
     }
+    if (hasToolOutput && !closed) {
+      openai.send({ type: "response.create", response: createSimulateAudioResponse() });
+    }
+    return hasToolOutput;
   };
 
   openai.onServerEvent((rawEvt) => {
@@ -315,10 +312,11 @@ export async function runSimulate(opts: {
     }
 
     if (type === "response.done") {
-      responseInFlight = false;
+      responseInFlight = true;
       void (async () => {
-        await handleToolCalls(evt);
+        const continued = await handleToolCalls(evt);
         if (closed) return;
+        if (!continued) responseInFlight = false;
         await flushAudioToFile();
       })().catch((err) => {
         if (closed) return;

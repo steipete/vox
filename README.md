@@ -77,7 +77,7 @@ Useful for iterating on tool-calling and prompts without PSTN setup:
 npm run dev -- simulate
 ```
 
-Type a line, press enter, and Vox will respond (and write `.wav` files under `VOX_LOG_DIR`). Disable audio playback with `--no-play`.
+Type a line, press enter, and Vox will respond (and write `.wav` files under `VOX_LOG_DIR`). Disable audio playback with `--no-play`. While a response or its tools are running, wait for completion before entering the next message. A response with multiple tool calls submits every tool result before starting one assistant follow-up.
 
 ## Local agent tool (`query_agent`)
 

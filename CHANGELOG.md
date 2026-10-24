@@ -1,7 +1,10 @@
 # Changelog
 
-## 0.2.2 - Unreleased
+## 0.2.2 - 2026-10-23
 
+**Highlights:** Simulator tool results produce one follow-up, and dependency updates patch Fastify, URI parsing, and Tinypool security advisories.
+
+- Security: update both fast-uri dependency lines to reject encoded URI schemes and fix host canonicalization and relative-reference advisories.
 - Simulation: submit all tool results before one follow-up response and keep terminal input blocked while tools are pending. Thanks @SebTardif (#31).
 
 - Refresh compatible Fastify, CLI tooling, React, Vite, and website dependencies while retaining Node.js 22 support.

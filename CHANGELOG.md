@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.2.3 - Unreleased
+
 ## 0.2.2 - 2026-10-23
 
 **Highlights:** Simulator tool results produce one follow-up, and dependency updates patch Fastify, URI parsing, and Tinypool security advisories.

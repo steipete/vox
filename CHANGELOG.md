@@ -2,6 +2,8 @@
 
 ## 0.2.3 - Unreleased
 
+- Refresh dotenv, formatter/linter tooling, website icons, and CSS/build dependencies while preserving quiet environment loading, environment precedence, and Node.js 22 support.
+
 ## 0.2.2 - 2026-10-23
 
 **Highlights:** Simulator tool results produce one follow-up, and dependency updates patch Fastify, URI parsing, and Tinypool security advisories.

@@ -313,6 +313,14 @@ export async function handleTwilioSocket(opts: {
     }
   });
 
+  const startedAt = new Date().toISOString();
+  const writeCallMeta = () => {
+    fs.writeFileSync(
+      path.join(logger.dir, "meta.json"),
+      JSON.stringify({ startedAt, callSid, streamSid }, null, 2),
+    );
+  };
+
   const handleTwilioMessage = (text: string) => {
     if (closed) return;
     let msg: TwilioInboundMessage;
@@ -327,6 +335,7 @@ export async function handleTwilioSocket(opts: {
       streamSid = msg.start?.streamSid ?? msg.streamSid ?? null;
       callSid = msg.start?.callSid ?? null;
       logger.event("vox", { type: "twilio.start", streamSid, callSid });
+      writeCallMeta();
       if (streamSid && outboundAudioQueue.length) {
         for (const chunk of outboundAudioQueue.splice(0, outboundAudioQueue.length)) {
           sendAssistantAudio(chunk.itemId, chunk.payload);
@@ -366,11 +375,9 @@ export async function handleTwilioSocket(opts: {
     handleTwilioMessage(text);
   });
 
-  // persist some call metadata for debugging
-  fs.writeFileSync(
-    path.join(logger.dir, "meta.json"),
-    JSON.stringify({ startedAt: new Date().toISOString(), callSid, streamSid }, null, 2),
-  );
+  // persist some call metadata for debugging. A start event that arrives
+  // after this first write updates the same file.
+  writeCallMeta();
 }
 
 export function decodeSocketData(data: unknown): string {

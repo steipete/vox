@@ -2,6 +2,7 @@
 
 ## 0.2.3 - Unreleased
 
+- Write Twilio call and stream ids into `meta.json` when the start event arrives after the first metadata write.
 - Refresh dotenv, formatter/linter tooling, website icons, and CSS/build dependencies while preserving quiet environment loading, environment precedence, and Node.js 22 support.
 
 ## 0.2.2 - 2026-10-23

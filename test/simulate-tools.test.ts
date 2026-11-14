@@ -17,7 +17,7 @@ async function waitUntil(ready: () => boolean) {
   }
 }
 
-async function simulator(t: TestContext, agentUrl?: string) {
+async function simulator(t: TestContext, agentUrl?: string, extraEnv: Record<string, string> = {}) {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "vox-sim-tools-"));
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
@@ -43,6 +43,7 @@ async function simulator(t: TestContext, agentUrl?: string) {
       OPENAI_API_KEY: "synthetic-test-key",
       OPENAI_REALTIME_URL: `ws://127.0.0.1:${address.port}`,
       ...(agentUrl ? { VOX_AGENT_URL: agentUrl } : {}),
+      ...extraEnv,
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -65,6 +66,7 @@ async function simulator(t: TestContext, agentUrl?: string) {
   return {
     messages,
     child,
+    outDir,
     stderr: () => stderr,
     send: (output: unknown[]) =>
       socket!.send(
@@ -73,6 +75,8 @@ async function simulator(t: TestContext, agentUrl?: string) {
           response: { status: "completed", output },
         }),
       ),
+    sendAudio: (delta: string) =>
+      socket!.send(JSON.stringify({ type: "response.output_audio.delta", delta })),
   };
 }
 
@@ -130,3 +134,81 @@ test("simulate CLI stays busy while an agent tool is pending", { timeout: 20_000
   );
   assert.deepEqual(continuation(sim.messages), ["report", "query", "response.create"]);
 });
+
+function outputFor(messages: any[], callId: string) {
+  const item = messages.find((message) => message.item?.call_id === callId);
+  assert.ok(item, `missing function_call_output for ${callId}`);
+  return JSON.parse(item.item.output);
+}
+
+function wavCount(outDir: string) {
+  let count = 0;
+  for (const entry of fs.readdirSync(outDir, { recursive: true, encoding: "utf8" })) {
+    if (String(entry).endsWith(".wav")) count += 1;
+  }
+  return count;
+}
+
+test(
+  "simulate CLI returns an agent failure, writes buffered audio, and stays open",
+  { timeout: 20_000 },
+  async (t) => {
+    const agent = http.createServer((_req, res) => {
+      res.writeHead(500, { "content-type": "text/plain" });
+      res.end("secret123");
+    });
+    agent.listen(0, "127.0.0.1");
+    await once(agent, "listening");
+    t.after(() => {
+      agent.close();
+      agent.closeAllConnections();
+    });
+    const address = agent.address();
+    assert.ok(address && typeof address !== "string");
+    const sim = await simulator(t, `http://127.0.0.1:${address.port}`);
+    sim.sendAudio(Buffer.from([0xff, 0x7f]).toString("base64"));
+    sim.send([tool("query_agent", "query-fail"), tool("save_call_report", "report-after")]);
+    await waitUntil(() => continuation(sim.messages).includes("response.create"));
+    const failed = outputFor(sim.messages, "query-fail");
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error, "Agent request failed");
+    assert.equal(JSON.stringify(failed).includes("secret123"), false);
+    assert.equal(outputFor(sim.messages, "report-after").ok, true);
+    await waitUntil(() => wavCount(sim.outDir) === 1);
+    sim.send([]);
+    await waitUntil(() => {
+      if (!sim.messages.some((message) => message.item?.content?.[0]?.text === "still open")) {
+        sim.child.stdin.write("still open\n");
+      }
+      return sim.messages.some((message) => message.item?.content?.[0]?.text === "still open");
+    });
+    assert.equal(sim.child.exitCode, null);
+    assert.doesNotMatch(sim.stderr(), /response handling failed/);
+  },
+);
+
+test(
+  "simulate CLI returns a timed out agent query without closing",
+  { timeout: 20_000 },
+  async (t) => {
+    const agent = http.createServer(() => {});
+    agent.listen(0, "127.0.0.1");
+    await once(agent, "listening");
+    t.after(() => {
+      agent.close();
+      agent.closeAllConnections();
+    });
+    const address = agent.address();
+    assert.ok(address && typeof address !== "string");
+    const sim = await simulator(t, `http://127.0.0.1:${address.port}`, {
+      VOX_AGENT_TIMEOUT_MS: "50",
+    });
+    sim.send([tool("query_agent", "query-timeout")]);
+    await waitUntil(() => continuation(sim.messages).includes("query-timeout"));
+    const failed = outputFor(sim.messages, "query-timeout");
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error, "Agent request failed");
+    assert.equal(sim.child.exitCode, null);
+    assert.doesNotMatch(sim.stderr(), /response handling failed/);
+  },
+);

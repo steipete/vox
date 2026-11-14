@@ -3,7 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
-import { type AgentClient, createHttpAgentClient, createSubprocessAgentClient } from "./agent.js";
+import {
+  AgentError,
+  type AgentClient,
+  createHttpAgentClient,
+  createSubprocessAgentClient,
+} from "./agent.js";
 import { mulawToPcm16 } from "./audio/mulaw.js";
 import { wavFromPcm16le } from "./audio/wav.js";
 import type { VoxConfig } from "./config.js";
@@ -209,11 +214,34 @@ export async function runSimulate(opts: {
       }
 
       if (name === "query_agent") {
-        const result = agent
-          ? await agent.query({
-              ...((typeof args === "object" && args !== null ? args : { args }) as any),
-            })
-          : { error: "No agent configured" };
+        let result: unknown;
+        try {
+          result = agent
+            ? await agent.query({
+                ...((typeof args === "object" && args !== null ? args : { args }) as any),
+              })
+            : { error: "No agent configured" };
+        } catch (err) {
+          if (closed) return;
+          const detail =
+            err instanceof AgentError
+              ? err.detail
+              : err instanceof Error
+                ? err.message
+                : String(err);
+          const message = err instanceof AgentError ? err.message : "Agent request failed";
+          logger.event("vox", { type: "tool.error", error: detail });
+          openai.send({
+            type: "conversation.item.create",
+            item: {
+              type: "function_call_output",
+              call_id: callId,
+              output: JSON.stringify({ ok: false, error: message }),
+            },
+          });
+          hasToolOutput = true;
+          continue;
+        }
         if (closed) return;
 
         openai.send({

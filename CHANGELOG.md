@@ -2,6 +2,10 @@
 
 ## 0.2.3 - Unreleased
 
+- Keep simulation open after failed or timed-out agent queries, return a safe tool error, and save buffered audio. Thanks @SebTardif (#35).
+- Persist late Twilio start IDs without changing the call start time; contain metadata write failures so logging cannot stop the bridge. Thanks @SebTardif (#36).
+- Refresh compatible CLI and website dependencies while preserving Node.js 22 support and the esbuild security override.
+
 - Refresh dotenv, formatter/linter tooling, website icons, and CSS/build dependencies while preserving quiet environment loading, environment precedence, and Node.js 22 support.
 
 ## 0.2.2 - 2026-10-23

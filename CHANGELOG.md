@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.3 - Unreleased
+## 0.2.3 - 2026-11-15
+
+**Highlights:** Simulations recover from failed agent queries and preserve buffered audio, while late Twilio call metadata is saved reliably.
 
 - Keep simulation open after failed or timed-out agent queries, return a safe tool error, and save buffered audio. Thanks @SebTardif (#35).
 - Persist late Twilio start IDs without changing the call start time; contain metadata write failures so logging cannot stop the bridge. Thanks @SebTardif (#36).

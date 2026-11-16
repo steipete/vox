@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.2.4 - Unreleased
+
 ## 0.2.3 - 2026-11-15
 
 **Highlights:** Simulations recover from failed agent queries and preserve buffered audio, while late Twilio call metadata is saved reliably.
